@@ -1,41 +1,26 @@
 import { zodResolver } from "@hookform/resolvers/zod"
-import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 import { useForm } from "react-hook-form"
-import { z } from "zod"
+import { type z } from "zod"
 
 import { UsersService, type UserUpdateMe } from "@/client"
+import { EditableField } from "@/components/Common/EditableField"
 import { Button } from "@/components/ui/button"
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form"
-import { Input } from "@/components/ui/input"
+import { Form } from "@/components/ui/form"
 import { LoadingButton } from "@/components/ui/loading-button"
 import useAuth from "@/hooks/useAuth"
-import useCustomToast from "@/hooks/useCustomToast"
-import { cn } from "@/lib/utils"
-import { handleError } from "@/utils"
+import { useApiMutation } from "@/hooks/useApiMutation"
+import { QUERY_KEYS } from "@/lib/constants"
+import { userInfoFormSchema } from "@/lib/schemas"
 
-const formSchema = z.object({
-  full_name: z.string().max(30).optional(),
-  email: z.email({ message: "Invalid email address" }),
-})
-
-type FormData = z.infer<typeof formSchema>
+type FormData = z.infer<typeof userInfoFormSchema>
 
 const UserInformation = () => {
-  const queryClient = useQueryClient()
-  const { showSuccessToast, showErrorToast } = useCustomToast()
   const [editMode, setEditMode] = useState(false)
   const { user: currentUser } = useAuth()
 
   const form = useForm<FormData>({
-    resolver: zodResolver(formSchema),
+    resolver: zodResolver(userInfoFormSchema),
     mode: "onBlur",
     criteriaMode: "all",
     defaultValues: {
@@ -48,17 +33,12 @@ const UserInformation = () => {
     setEditMode(!editMode)
   }
 
-  const mutation = useMutation({
+  const mutation = useApiMutation<unknown, UserUpdateMe>({
     mutationFn: (data: UserUpdateMe) =>
       UsersService.updateUserMe({ requestBody: data }),
-    onSuccess: () => {
-      showSuccessToast("User updated successfully")
-      toggleEditMode()
-    },
-    onError: handleError.bind(showErrorToast),
-    onSettled: () => {
-      queryClient.invalidateQueries()
-    },
+    successMessage: "User updated successfully",
+    onSuccess: () => toggleEditMode(),
+    invalidateKeys: [[QUERY_KEYS.CURRENT_USER], [QUERY_KEYS.USERS]],
   })
 
   const onSubmit = (data: FormData) => {
@@ -88,53 +68,19 @@ const UserInformation = () => {
           onSubmit={form.handleSubmit(onSubmit)}
           className="flex flex-col gap-4"
         >
-          <FormField
+          <EditableField
             control={form.control}
             name="full_name"
-            render={({ field }) =>
-              editMode ? (
-                <FormItem>
-                  <FormLabel>Full name</FormLabel>
-                  <FormControl>
-                    <Input type="text" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              ) : (
-                <FormItem>
-                  <FormLabel>Full name</FormLabel>
-                  <p
-                    className={cn(
-                      "py-2 truncate max-w-sm",
-                      !field.value && "text-muted-foreground",
-                    )}
-                  >
-                    {field.value || "N/A"}
-                  </p>
-                </FormItem>
-              )
-            }
+            label="Full name"
+            editMode={editMode}
           />
 
-          <FormField
+          <EditableField
             control={form.control}
             name="email"
-            render={({ field }) =>
-              editMode ? (
-                <FormItem>
-                  <FormLabel>Email</FormLabel>
-                  <FormControl>
-                    <Input type="email" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              ) : (
-                <FormItem>
-                  <FormLabel>Email</FormLabel>
-                  <p className="py-2 truncate max-w-sm">{field.value}</p>
-                </FormItem>
-              )
-            }
+            label="Email"
+            editMode={editMode}
+            type="email"
           />
 
           <div className="flex gap-3">

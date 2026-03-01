@@ -1,23 +1,11 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { Trash2 } from "lucide-react"
 import { useState } from "react"
-import { useForm } from "react-hook-form"
 
 import { UsersService } from "@/client"
-import { Button } from "@/components/ui/button"
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
+import { ConfirmDialog } from "@/components/Common/ConfirmDialog"
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu"
-import { LoadingButton } from "@/components/ui/loading-button"
-import useCustomToast from "@/hooks/useCustomToast"
-import { handleError } from "@/utils"
+import { useApiMutation } from "@/hooks/useApiMutation"
+import { QUERY_KEYS } from "@/lib/constants"
 
 interface DeleteUserProps {
   id: string
@@ -26,33 +14,20 @@ interface DeleteUserProps {
 
 const DeleteUser = ({ id, onSuccess }: DeleteUserProps) => {
   const [isOpen, setIsOpen] = useState(false)
-  const queryClient = useQueryClient()
-  const { showSuccessToast, showErrorToast } = useCustomToast()
-  const { handleSubmit } = useForm()
 
-  const deleteUser = async (id: string) => {
-    await UsersService.deleteUser({ userId: id })
-  }
-
-  const mutation = useMutation({
-    mutationFn: deleteUser,
+  const mutation = useApiMutation<unknown, string>({
+    mutationFn: (userId: string) =>
+      UsersService.deleteUser({ userId }),
+    successMessage: "The user was deleted successfully",
     onSuccess: () => {
-      showSuccessToast("The user was deleted successfully")
       setIsOpen(false)
       onSuccess()
     },
-    onError: handleError.bind(showErrorToast),
-    onSettled: () => {
-      queryClient.invalidateQueries()
-    },
+    invalidateKeys: [[QUERY_KEYS.USERS]],
   })
 
-  const onSubmit = async () => {
-    mutation.mutate(id)
-  }
-
   return (
-    <Dialog open={isOpen} onOpenChange={setIsOpen}>
+    <>
       <DropdownMenuItem
         variant="destructive"
         onSelect={(e) => e.preventDefault()}
@@ -61,34 +36,21 @@ const DeleteUser = ({ id, onSuccess }: DeleteUserProps) => {
         <Trash2 />
         Delete User
       </DropdownMenuItem>
-      <DialogContent className="sm:max-w-md">
-        <form onSubmit={handleSubmit(onSubmit)}>
-          <DialogHeader>
-            <DialogTitle>Delete User</DialogTitle>
-            <DialogDescription>
-              All items associated with this user will also be{" "}
-              <strong>permanently deleted.</strong> Are you sure? You will not
-              be able to undo this action.
-            </DialogDescription>
-          </DialogHeader>
-
-          <DialogFooter className="mt-4">
-            <DialogClose asChild>
-              <Button variant="outline" disabled={mutation.isPending}>
-                Cancel
-              </Button>
-            </DialogClose>
-            <LoadingButton
-              variant="destructive"
-              type="submit"
-              loading={mutation.isPending}
-            >
-              Delete
-            </LoadingButton>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+      <ConfirmDialog
+        open={isOpen}
+        onOpenChange={setIsOpen}
+        title="Delete User"
+        description={
+          <>
+            All items associated with this user will also be{" "}
+            <strong>permanently deleted.</strong> Are you sure? You will not
+            be able to undo this action.
+          </>
+        }
+        onConfirm={() => mutation.mutate(id)}
+        isPending={mutation.isPending}
+      />
+    </>
   )
 }
 

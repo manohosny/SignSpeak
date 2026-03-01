@@ -5,7 +5,8 @@ import {
   redirect,
 } from "@tanstack/react-router"
 import { useForm } from "react-hook-form"
-import { z } from "zod"
+import { type z } from "zod"
+
 import { AuthLayout } from "@/components/Common/AuthLayout"
 import {
   Form,
@@ -19,25 +20,9 @@ import { Input } from "@/components/ui/input"
 import { LoadingButton } from "@/components/ui/loading-button"
 import { PasswordInput } from "@/components/ui/password-input"
 import useAuth, { isLoggedIn } from "@/hooks/useAuth"
+import { signUpFormSchema } from "@/lib/schemas"
 
-const formSchema = z
-  .object({
-    email: z.email(),
-    full_name: z.string().min(1, { message: "Full Name is required" }),
-    password: z
-      .string()
-      .min(1, { message: "Password is required" })
-      .min(8, { message: "Password must be at least 8 characters" }),
-    confirm_password: z
-      .string()
-      .min(1, { message: "Password confirmation is required" }),
-  })
-  .refine((data) => data.password === data.confirm_password, {
-    message: "The passwords don't match",
-    path: ["confirm_password"],
-  })
-
-type FormData = z.infer<typeof formSchema>
+type FormData = z.infer<typeof signUpFormSchema>
 
 export const Route = createFileRoute("/signup")({
   component: SignUp,
@@ -60,7 +45,7 @@ export const Route = createFileRoute("/signup")({
 function SignUp() {
   const { signUpMutation } = useAuth()
   const form = useForm<FormData>({
-    resolver: zodResolver(formSchema),
+    resolver: zodResolver(signUpFormSchema),
     mode: "onBlur",
     criteriaMode: "all",
     defaultValues: {
