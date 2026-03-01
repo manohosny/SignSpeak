@@ -1,7 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod"
-import { useMutation } from "@tanstack/react-query"
 import { useForm } from "react-hook-form"
-import { z } from "zod"
+import { type z } from "zod"
 
 import { type UpdatePassword, UsersService } from "@/client"
 import {
@@ -14,34 +13,14 @@ import {
 } from "@/components/ui/form"
 import { LoadingButton } from "@/components/ui/loading-button"
 import { PasswordInput } from "@/components/ui/password-input"
-import useCustomToast from "@/hooks/useCustomToast"
-import { handleError } from "@/utils"
+import { useApiMutation } from "@/hooks/useApiMutation"
+import { changePasswordFormSchema } from "@/lib/schemas"
 
-const formSchema = z
-  .object({
-    current_password: z
-      .string()
-      .min(1, { message: "Password is required" })
-      .min(8, { message: "Password must be at least 8 characters" }),
-    new_password: z
-      .string()
-      .min(1, { message: "Password is required" })
-      .min(8, { message: "Password must be at least 8 characters" }),
-    confirm_password: z
-      .string()
-      .min(1, { message: "Password confirmation is required" }),
-  })
-  .refine((data) => data.new_password === data.confirm_password, {
-    message: "The passwords don't match",
-    path: ["confirm_password"],
-  })
-
-type FormData = z.infer<typeof formSchema>
+type FormData = z.infer<typeof changePasswordFormSchema>
 
 const ChangePassword = () => {
-  const { showSuccessToast, showErrorToast } = useCustomToast()
   const form = useForm<FormData>({
-    resolver: zodResolver(formSchema),
+    resolver: zodResolver(changePasswordFormSchema),
     mode: "onSubmit",
     criteriaMode: "all",
     defaultValues: {
@@ -51,14 +30,11 @@ const ChangePassword = () => {
     },
   })
 
-  const mutation = useMutation({
+  const mutation = useApiMutation<unknown, UpdatePassword>({
     mutationFn: (data: UpdatePassword) =>
       UsersService.updatePasswordMe({ requestBody: data }),
-    onSuccess: () => {
-      showSuccessToast("Password updated successfully")
-      form.reset()
-    },
-    onError: handleError.bind(showErrorToast),
+    successMessage: "Password updated successfully",
+    onSuccess: () => form.reset(),
   })
 
   const onSubmit = async (data: FormData) => {

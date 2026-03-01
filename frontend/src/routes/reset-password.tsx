@@ -23,28 +23,14 @@ import { LoadingButton } from "@/components/ui/loading-button"
 import { PasswordInput } from "@/components/ui/password-input"
 import { isLoggedIn } from "@/hooks/useAuth"
 import useCustomToast from "@/hooks/useCustomToast"
+import { resetPasswordFormSchema } from "@/lib/schemas"
 import { handleError } from "@/utils"
 
 const searchSchema = z.object({
   token: z.string().catch(""),
 })
 
-const formSchema = z
-  .object({
-    new_password: z
-      .string()
-      .min(1, { message: "Password is required" })
-      .min(8, { message: "Password must be at least 8 characters" }),
-    confirm_password: z
-      .string()
-      .min(1, { message: "Password confirmation is required" }),
-  })
-  .refine((data) => data.new_password === data.confirm_password, {
-    message: "The passwords don't match",
-    path: ["confirm_password"],
-  })
-
-type FormData = z.infer<typeof formSchema>
+type FormData = z.infer<typeof resetPasswordFormSchema>
 
 export const Route = createFileRoute("/reset-password")({
   component: ResetPassword,
@@ -72,7 +58,7 @@ function ResetPassword() {
   const navigate = useNavigate()
 
   const form = useForm<FormData>({
-    resolver: zodResolver(formSchema),
+    resolver: zodResolver(resetPasswordFormSchema),
     mode: "onBlur",
     criteriaMode: "all",
     defaultValues: {

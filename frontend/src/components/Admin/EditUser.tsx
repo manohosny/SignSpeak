@@ -1,9 +1,7 @@
 import { zodResolver } from "@hookform/resolvers/zod"
-import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { Pencil } from "lucide-react"
-import { useState } from "react"
 import { useForm } from "react-hook-form"
-import { z } from "zod"
+import { type z } from "zod"
 
 import { type UserPublic, UsersService } from "@/client"
 import { Button } from "@/components/ui/button"
@@ -28,28 +26,12 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { LoadingButton } from "@/components/ui/loading-button"
-import useCustomToast from "@/hooks/useCustomToast"
-import { handleError } from "@/utils"
+import { useApiMutation } from "@/hooks/useApiMutation"
+import { useDialogForm } from "@/hooks/useDialogForm"
+import { QUERY_KEYS } from "@/lib/constants"
+import { editUserFormSchema } from "@/lib/schemas"
 
-const formSchema = z
-  .object({
-    email: z.email({ message: "Invalid email address" }),
-    full_name: z.string().optional(),
-    password: z
-      .string()
-      .min(8, { message: "Password must be at least 8 characters" })
-      .optional()
-      .or(z.literal("")),
-    confirm_password: z.string().optional(),
-    is_superuser: z.boolean().optional(),
-    is_active: z.boolean().optional(),
-  })
-  .refine((data) => !data.password || data.password === data.confirm_password, {
-    message: "The passwords don't match",
-    path: ["confirm_password"],
-  })
-
-type FormData = z.infer<typeof formSchema>
+type FormData = z.infer<typeof editUserFormSchema>
 
 interface EditUserProps {
   user: UserPublic
@@ -57,12 +39,8 @@ interface EditUserProps {
 }
 
 const EditUser = ({ user, onSuccess }: EditUserProps) => {
-  const [isOpen, setIsOpen] = useState(false)
-  const queryClient = useQueryClient()
-  const { showSuccessToast, showErrorToast } = useCustomToast()
-
   const form = useForm<FormData>({
-    resolver: zodResolver(formSchema),
+    resolver: zodResolver(editUserFormSchema),
     mode: "onBlur",
     criteriaMode: "all",
     defaultValues: {
@@ -73,18 +51,17 @@ const EditUser = ({ user, onSuccess }: EditUserProps) => {
     },
   })
 
-  const mutation = useMutation({
+  const dialog = useDialogForm({ form })
+
+  const mutation = useApiMutation<unknown, FormData>({
     mutationFn: (data: FormData) =>
       UsersService.updateUser({ userId: user.id, requestBody: data }),
+    successMessage: "User updated successfully",
     onSuccess: () => {
-      showSuccessToast("User updated successfully")
-      setIsOpen(false)
+      dialog.close()
       onSuccess()
     },
-    onError: handleError.bind(showErrorToast),
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ["users"] })
-    },
+    invalidateKeys: [[QUERY_KEYS.USERS]],
   })
 
   const onSubmit = (data: FormData) => {
@@ -97,10 +74,10 @@ const EditUser = ({ user, onSuccess }: EditUserProps) => {
   }
 
   return (
-    <Dialog open={isOpen} onOpenChange={setIsOpen}>
+    <Dialog open={dialog.isOpen} onOpenChange={dialog.onOpenChange}>
       <DropdownMenuItem
         onSelect={(e) => e.preventDefault()}
-        onClick={() => setIsOpen(true)}
+        onClick={() => dialog.open()}
       >
         <Pencil />
         Edit User

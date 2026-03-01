@@ -12,6 +12,7 @@ import {
   ChevronsRight,
 } from "lucide-react"
 
+import { PAGE_SIZE_OPTIONS } from "@/lib/constants"
 import { Button } from "@/components/ui/button"
 import {
   Select,
@@ -122,7 +123,7 @@ export function DataTable<TData, TValue>({
                   />
                 </SelectTrigger>
                 <SelectContent side="top">
-                  {[5, 10, 25, 50].map((pageSize) => (
+                  {PAGE_SIZE_OPTIONS.map((pageSize) => (
                     <SelectItem key={pageSize} value={`${pageSize}`}>
                       {pageSize}
                     </SelectItem>
