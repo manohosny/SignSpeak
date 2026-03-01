@@ -1,9 +1,7 @@
 import { zodResolver } from "@hookform/resolvers/zod"
-import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { Plus } from "lucide-react"
-import { useState } from "react"
 import { useForm } from "react-hook-form"
-import { z } from "zod"
+import { type z } from "zod"
 
 import { type UserCreate, UsersService } from "@/client"
 import { Button } from "@/components/ui/button"
@@ -28,37 +26,16 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { LoadingButton } from "@/components/ui/loading-button"
-import useCustomToast from "@/hooks/useCustomToast"
-import { handleError } from "@/utils"
+import { useApiMutation } from "@/hooks/useApiMutation"
+import { useDialogForm } from "@/hooks/useDialogForm"
+import { QUERY_KEYS } from "@/lib/constants"
+import { addUserFormSchema } from "@/lib/schemas"
 
-const formSchema = z
-  .object({
-    email: z.email({ message: "Invalid email address" }),
-    full_name: z.string().optional(),
-    password: z
-      .string()
-      .min(1, { message: "Password is required" })
-      .min(8, { message: "Password must be at least 8 characters" }),
-    confirm_password: z
-      .string()
-      .min(1, { message: "Please confirm your password" }),
-    is_superuser: z.boolean(),
-    is_active: z.boolean(),
-  })
-  .refine((data) => data.password === data.confirm_password, {
-    message: "The passwords don't match",
-    path: ["confirm_password"],
-  })
-
-type FormData = z.infer<typeof formSchema>
+type FormData = z.infer<typeof addUserFormSchema>
 
 const AddUser = () => {
-  const [isOpen, setIsOpen] = useState(false)
-  const queryClient = useQueryClient()
-  const { showSuccessToast, showErrorToast } = useCustomToast()
-
   const form = useForm<FormData>({
-    resolver: zodResolver(formSchema),
+    resolver: zodResolver(addUserFormSchema),
     mode: "onBlur",
     criteriaMode: "all",
     defaultValues: {
@@ -71,18 +48,14 @@ const AddUser = () => {
     },
   })
 
-  const mutation = useMutation({
+  const dialog = useDialogForm({ form })
+
+  const mutation = useApiMutation<unknown, UserCreate>({
     mutationFn: (data: UserCreate) =>
       UsersService.createUser({ requestBody: data }),
-    onSuccess: () => {
-      showSuccessToast("User created successfully")
-      form.reset()
-      setIsOpen(false)
-    },
-    onError: handleError.bind(showErrorToast),
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ["users"] })
-    },
+    successMessage: "User created successfully",
+    onSuccess: () => dialog.close(),
+    invalidateKeys: [[QUERY_KEYS.USERS]],
   })
 
   const onSubmit = (data: FormData) => {
@@ -90,7 +63,7 @@ const AddUser = () => {
   }
 
   return (
-    <Dialog open={isOpen} onOpenChange={setIsOpen}>
+    <Dialog open={dialog.isOpen} onOpenChange={dialog.onOpenChange}>
       <DialogTrigger asChild>
         <Button className="my-4">
           <Plus className="mr-2" />

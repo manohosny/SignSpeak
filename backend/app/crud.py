@@ -1,10 +1,9 @@
 import uuid
-from typing import Any
 
-from sqlmodel import Session, select
+from sqlmodel import Session, col, func, select
 
 from app.core.security import get_password_hash, verify_password
-from app.models import Item, ItemCreate, User, UserCreate, UserUpdate
+from app.models import User, UserCreate, UserUpdate
 
 
 def create_user(*, session: Session, user_create: UserCreate) -> User:
@@ -17,7 +16,7 @@ def create_user(*, session: Session, user_create: UserCreate) -> User:
     return db_obj
 
 
-def update_user(*, session: Session, db_user: User, user_in: UserUpdate) -> Any:
+def update_user(*, session: Session, db_user: User, user_in: UserUpdate) -> User:
     user_data = user_in.model_dump(exclude_unset=True)
     extra_data = {}
     if "password" in user_data:
@@ -60,9 +59,32 @@ def authenticate(*, session: Session, email: str, password: str) -> User | None:
     return db_user
 
 
-def create_item(*, session: Session, item_in: ItemCreate, owner_id: uuid.UUID) -> Item:
-    db_item = Item.model_validate(item_in, update={"owner_id": owner_id})
-    session.add(db_item)
+def get_user_by_id(*, session: Session, user_id: uuid.UUID) -> User | None:
+    return session.get(User, user_id)
+
+
+def get_users(*, session: Session, skip: int = 0, limit: int = 100) -> tuple[list[User], int]:
+    count_statement = select(func.count()).select_from(User)
+    count = session.exec(count_statement).one()
+    statement = select(User).order_by(col(User.created_at).desc()).offset(skip).limit(limit)
+    users = session.exec(statement).all()
+    return list(users), count
+
+
+def delete_user(*, session: Session, user: User) -> None:
+    session.delete(user)
     session.commit()
-    session.refresh(db_item)
-    return db_item
+
+
+def update_user_partial(*, session: Session, db_user: User, update_data: dict) -> User:
+    db_user.sqlmodel_update(update_data)
+    session.add(db_user)
+    session.commit()
+    session.refresh(db_user)
+    return db_user
+
+
+def set_password(*, session: Session, user: User, hashed_password: str) -> None:
+    user.hashed_password = hashed_password
+    session.add(user)
+    session.commit()

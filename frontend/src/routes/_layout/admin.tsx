@@ -8,11 +8,12 @@ import { columns, type UserTableData } from "@/components/Admin/columns"
 import { DataTable } from "@/components/Common/DataTable"
 import PendingUsers from "@/components/Pending/PendingUsers"
 import useAuth from "@/hooks/useAuth"
+import { QUERY_KEYS, DEFAULT_USERS_FETCH_LIMIT } from "@/lib/constants"
 
 function getUsersQueryOptions() {
   return {
-    queryFn: () => UsersService.readUsers({ skip: 0, limit: 100 }),
-    queryKey: ["users"],
+    queryFn: () => UsersService.readUsers({ skip: 0, limit: DEFAULT_USERS_FETCH_LIMIT }),
+    queryKey: [QUERY_KEYS.USERS],
   }
 }
 

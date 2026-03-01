@@ -8,6 +8,7 @@ import {
   type UserRegister,
   UsersService,
 } from "@/client"
+import { QUERY_KEYS } from "@/lib/constants"
 import { handleError } from "@/utils"
 import useCustomToast from "./useCustomToast"
 
@@ -21,7 +22,7 @@ const useAuth = () => {
   const { showErrorToast } = useCustomToast()
 
   const { data: user } = useQuery<UserPublic | null, Error>({
-    queryKey: ["currentUser"],
+    queryKey: [QUERY_KEYS.CURRENT_USER],
     queryFn: UsersService.readUserMe,
     enabled: isLoggedIn(),
   })
@@ -34,7 +35,7 @@ const useAuth = () => {
     },
     onError: handleError.bind(showErrorToast),
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ["users"] })
+      queryClient.invalidateQueries({ queryKey: [QUERY_KEYS.USERS] })
     },
   })
 

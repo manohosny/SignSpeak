@@ -6,7 +6,7 @@ import {
   redirect,
 } from "@tanstack/react-router"
 import { useForm } from "react-hook-form"
-import { z } from "zod"
+import { type z } from "zod"
 
 import { LoginService } from "@/client"
 import { AuthLayout } from "@/components/Common/AuthLayout"
@@ -22,13 +22,10 @@ import { Input } from "@/components/ui/input"
 import { LoadingButton } from "@/components/ui/loading-button"
 import { isLoggedIn } from "@/hooks/useAuth"
 import useCustomToast from "@/hooks/useCustomToast"
+import { recoverPasswordFormSchema } from "@/lib/schemas"
 import { handleError } from "@/utils"
 
-const formSchema = z.object({
-  email: z.email(),
-})
-
-type FormData = z.infer<typeof formSchema>
+type FormData = z.infer<typeof recoverPasswordFormSchema>
 
 export const Route = createFileRoute("/recover-password")({
   component: RecoverPassword,
@@ -50,7 +47,7 @@ export const Route = createFileRoute("/recover-password")({
 
 function RecoverPassword() {
   const form = useForm<FormData>({
-    resolver: zodResolver(formSchema),
+    resolver: zodResolver(recoverPasswordFormSchema),
     defaultValues: {
       email: "",
     },
