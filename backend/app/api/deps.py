@@ -10,7 +10,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core import security
 from app.core.config import settings
-from app.core.db import engine
+from app.core.db import async_session_factory
 from app.errors import (
     raise_inactive_user,
     raise_insufficient_privileges,
@@ -24,7 +24,7 @@ reusable_oauth2 = OAuth2PasswordBearer(
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
-    async with AsyncSession(engine) as session:
+    async with async_session_factory() as session:
         yield session
 
 
