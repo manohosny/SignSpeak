@@ -1,15 +1,15 @@
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useState } from "react"
 import { useForm } from "react-hook-form"
-import { type z } from "zod"
+import type { z } from "zod"
 
 import { UsersService, type UserUpdateMe } from "@/client"
 import { EditableField } from "@/components/Common/EditableField"
 import { Button } from "@/components/ui/button"
 import { Form } from "@/components/ui/form"
 import { LoadingButton } from "@/components/ui/loading-button"
-import useAuth from "@/hooks/useAuth"
 import { useApiMutation } from "@/hooks/useApiMutation"
+import useAuth from "@/hooks/useAuth"
 import { QUERY_KEYS } from "@/lib/constants"
 import { userInfoFormSchema } from "@/lib/schemas"
 

@@ -29,28 +29,28 @@ async def create_meeting(
     return meeting
 
 
-async def get_meeting_by_code(
-    *, session: AsyncSession, code: str
+async def _get_meeting(
+    session: AsyncSession, *conditions: object
 ) -> Meeting | None:
     statement = (
         select(Meeting)
-        .where(Meeting.code == code)
+        .where(*conditions)
         .options(selectinload(Meeting.participants))  # type: ignore
     )
     result = await session.exec(statement)
     return result.first()
+
+
+async def get_meeting_by_code(
+    *, session: AsyncSession, code: str
+) -> Meeting | None:
+    return await _get_meeting(session, Meeting.code == code)
 
 
 async def get_meeting_by_id(
     *, session: AsyncSession, meeting_id: uuid.UUID
 ) -> Meeting | None:
-    statement = (
-        select(Meeting)
-        .where(Meeting.id == meeting_id)
-        .options(selectinload(Meeting.participants))  # type: ignore
-    )
-    result = await session.exec(statement)
-    return result.first()
+    return await _get_meeting(session, Meeting.id == meeting_id)
 
 
 async def update_meeting(*, session: AsyncSession, meeting: Meeting) -> Meeting:

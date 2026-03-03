@@ -29,25 +29,24 @@ class MeetingSession:
     meeting_id: uuid.UUID
     participants: dict[uuid.UUID, Participant] = field(default_factory=dict)
 
+    def get_by_role(self, role: str) -> Participant | None:
+        return next(
+            (p for p in self.participants.values() if p.role == role), None
+        )
+
     @property
     def speaker(self) -> Participant | None:
-        for p in self.participants.values():
-            if p.role == "speaker":
-                return p
-        return None
+        return self.get_by_role("speaker")
 
     @property
     def reader(self) -> Participant | None:
-        for p in self.participants.values():
-            if p.role == "reader":
-                return p
-        return None
+        return self.get_by_role("reader")
 
     def get_partner(self, user_id: uuid.UUID) -> Participant | None:
-        for uid, p in self.participants.items():
-            if uid != user_id:
-                return p
-        return None
+        return next(
+            (p for p in self.participants.values() if p.user_id != user_id),
+            None,
+        )
 
     @property
     def is_full(self) -> bool:
@@ -166,8 +165,8 @@ class ConnectionManager:
     async def _safe_send_json(self, ws: WebSocket, data: dict) -> None:
         try:
             await ws.send_json(data)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Broadcast send failed: %s", e)
 
     @property
     def active_session_count(self) -> int:

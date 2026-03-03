@@ -1,6 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
-import { type z } from "zod"
+import type { z } from "zod"
 
 import { type UpdatePassword, UsersService } from "@/client"
 import {

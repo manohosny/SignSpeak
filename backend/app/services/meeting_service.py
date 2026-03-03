@@ -85,12 +85,12 @@ async def join_meeting(
     if len(existing_participants) >= 2:
         raise_meeting_full()
 
-    for p in existing_participants:
-        if p.user_id == user.id:
+    for participant in existing_participants:
+        if participant.user_id == user.id:
             raise_already_in_meeting()
 
     # Prevent two participants from having the same role
-    existing_roles = {p.role for p in existing_participants}
+    existing_roles = {participant.role for participant in existing_participants}
     if role in existing_roles:
         role = (
             ParticipantRole.reader
@@ -143,9 +143,9 @@ async def end_meeting(
     active_participants = await crud_meeting.get_active_participants(
         session=session, meeting_id=meeting_id
     )
-    for p in active_participants:
+    for participant in active_participants:
         await crud_meeting.mark_participant_left(
-            session=session, participant=p, left_at=now
+            session=session, participant=participant, left_at=now
         )
 
     await session.commit()

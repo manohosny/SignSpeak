@@ -1,17 +1,17 @@
 import { describe, expect, it } from "vitest"
 import {
-  emailSchema,
-  passwordSchema,
-  confirmPasswordSchema,
-  fullNameSchema,
-  signUpFormSchema,
-  loginFormSchema,
   addUserFormSchema,
-  editUserFormSchema,
   changePasswordFormSchema,
-  resetPasswordFormSchema,
-  userInfoFormSchema,
+  confirmPasswordSchema,
+  editUserFormSchema,
+  emailSchema,
+  fullNameSchema,
+  loginFormSchema,
+  passwordSchema,
   recoverPasswordFormSchema,
+  resetPasswordFormSchema,
+  signUpFormSchema,
+  userInfoFormSchema,
 } from "../schemas"
 
 describe("Atomic schemas", () => {
