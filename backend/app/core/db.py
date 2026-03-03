@@ -1,4 +1,4 @@
-from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -11,6 +11,14 @@ if settings.DATABASE_URL:
     connect_args["sslmode"] = "require"
 
 engine = create_async_engine(str(settings.SQLALCHEMY_DATABASE_URI), connect_args=connect_args)
+
+# Session factory for non-DI contexts (WebSocket handlers, background tasks).
+# Unlike get_db() in deps.py (request-scoped), this can create sessions anywhere.
+async_session_factory = async_sessionmaker(
+    engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
+)
 
 
 # make sure all SQLModel models are imported (app.models) before initializing DB
