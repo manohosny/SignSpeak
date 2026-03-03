@@ -16,8 +16,7 @@ const DeleteUser = ({ id, onSuccess }: DeleteUserProps) => {
   const [isOpen, setIsOpen] = useState(false)
 
   const mutation = useApiMutation<unknown, string>({
-    mutationFn: (userId: string) =>
-      UsersService.deleteUser({ userId }),
+    mutationFn: (userId: string) => UsersService.deleteUser({ userId }),
     successMessage: "The user was deleted successfully",
     onSuccess: () => {
       setIsOpen(false)
@@ -43,8 +42,8 @@ const DeleteUser = ({ id, onSuccess }: DeleteUserProps) => {
         description={
           <>
             All items associated with this user will also be{" "}
-            <strong>permanently deleted.</strong> Are you sure? You will not
-            be able to undo this action.
+            <strong>permanently deleted.</strong> Are you sure? You will not be
+            able to undo this action.
           </>
         }
         onConfirm={() => mutation.mutate(id)}

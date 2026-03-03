@@ -59,41 +59,7 @@ class MeetingHandler:
             return
 
         logger.debug("STT: %s...", transcript[:80])
-
-        session = manager.get_session(self.meeting_id)
-        if not session:
-            return
-
-        timestamp = datetime.now(timezone.utc).isoformat()
-        transcript_msg = {
-            "type": "transcript",
-            "text": transcript,
-            "is_partial": False,
-            "sender_id": str(sender_id),
-            "timestamp": timestamp,
-        }
-
-        # Send to Reader
-        reader = session.reader
-        if reader:
-            await manager.send_json_to_user(
-                meeting_id=self.meeting_id,
-                user_id=reader.user_id,
-                data=transcript_msg,
-            )
-
-        # Send to Speaker (see own words)
-        await manager.send_json_to_user(
-            meeting_id=self.meeting_id,
-            user_id=sender_id,
-            data=transcript_msg,
-        )
-
-        await self._save_message(
-            sender_id=sender_id,
-            content=transcript,
-            msg_type=MessageType.speech_transcript,
-        )
+        await self._broadcast_transcript(sender_id, transcript)
 
     async def handle_text_message(
         self,
@@ -179,37 +145,7 @@ class MeetingHandler:
         if not transcript:
             return
 
-        session = manager.get_session(self.meeting_id)
-        if not session:
-            return
-
-        timestamp = datetime.now(timezone.utc).isoformat()
-        transcript_msg = {
-            "type": "transcript",
-            "text": transcript,
-            "is_partial": False,
-            "sender_id": str(sender_id),
-            "timestamp": timestamp,
-        }
-
-        reader = session.reader
-        if reader:
-            await manager.send_json_to_user(
-                meeting_id=self.meeting_id,
-                user_id=reader.user_id,
-                data=transcript_msg,
-            )
-        await manager.send_json_to_user(
-            meeting_id=self.meeting_id,
-            user_id=sender_id,
-            data=transcript_msg,
-        )
-
-        await self._save_message(
-            sender_id=sender_id,
-            content=transcript,
-            msg_type=MessageType.speech_transcript,
-        )
+        await self._broadcast_transcript(sender_id, transcript)
 
     async def handle_user_joined(
         self, user_id: uuid.UUID, display_name: str, role: str
@@ -245,6 +181,43 @@ class MeetingHandler:
         )
         self._active = False
         self.stt_buffer.clear()
+
+    async def _broadcast_transcript(
+        self, sender_id: uuid.UUID, transcript: str
+    ) -> None:
+        """Build transcript message, send to both participants, and persist."""
+        session = manager.get_session(self.meeting_id)
+        if not session:
+            return
+
+        timestamp = datetime.now(timezone.utc).isoformat()
+        transcript_msg = {
+            "type": "transcript",
+            "text": transcript,
+            "is_partial": False,
+            "sender_id": str(sender_id),
+            "timestamp": timestamp,
+        }
+
+        reader = session.reader
+        if reader:
+            await manager.send_json_to_user(
+                meeting_id=self.meeting_id,
+                user_id=reader.user_id,
+                data=transcript_msg,
+            )
+
+        await manager.send_json_to_user(
+            meeting_id=self.meeting_id,
+            user_id=sender_id,
+            data=transcript_msg,
+        )
+
+        await self._save_message(
+            sender_id=sender_id,
+            content=transcript,
+            msg_type=MessageType.speech_transcript,
+        )
 
     async def _save_message(
         self,

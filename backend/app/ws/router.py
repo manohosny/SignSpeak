@@ -35,7 +35,7 @@ from app.core.db import async_session_factory
 from app.core.security import decode_token
 from app.models import Meeting, MeetingStatus, User
 from app.ws.connection_manager import manager
-from app.ws.handlers import get_or_create_handler, remove_handler
+from app.ws.handlers import MeetingHandler, get_or_create_handler, remove_handler
 
 logger = logging.getLogger(__name__)
 
@@ -84,56 +84,18 @@ async def meeting_websocket(
             if message.get("type") == "websocket.disconnect":
                 break
 
-            # Binary = audio from Speaker
             if "bytes" in message and message["bytes"]:
-                if role == "speaker":
-                    await handler.handle_audio_chunk(
-                        sender_id=user_id,
-                        audio_bytes=message["bytes"],
-                    )
-                else:
-                    logger.warning("Reader %s sent audio — ignoring", user_id)
+                await _handle_binary(handler, user_id, role, message["bytes"])
 
-            # Text = JSON message
             elif "text" in message and message["text"]:
-                try:
-                    data = json.loads(message["text"])
-                except json.JSONDecodeError:
-                    await websocket.send_json({
-                        "type": "error",
-                        "message": "Invalid JSON",
-                    })
-                    continue
-
-                msg_type = data.get("type")
-
-                if msg_type == "text_message":
-                    content = data.get("content", "").strip()
-                    if content:
-                        await handler.handle_text_message(
-                            sender_id=user_id,
-                            content=content,
-                        )
-
-                elif msg_type == "leave":
-                    if role == "speaker":
-                        await handler.handle_speaker_stopped(sender_id=user_id)
-                        speaker_flushed = True
+                should_break, flushed = await _handle_text(
+                    websocket, handler, user_id, role, meeting_id,
+                    message["text"],
+                )
+                if flushed:
+                    speaker_flushed = True
+                if should_break:
                     break
-
-                elif msg_type == "end_meeting":
-                    if role == "speaker":
-                        await handler.handle_speaker_stopped(sender_id=user_id)
-                        speaker_flushed = True
-                    await handler.handle_meeting_ended()
-                    await _end_meeting_in_db(meeting_id)
-                    break
-
-                else:
-                    await websocket.send_json({
-                        "type": "error",
-                        "message": f"Unknown message type: {msg_type}",
-                    })
 
     except WebSocketDisconnect:
         logger.info("%s disconnected from meeting %s", display_name, meeting_id)
@@ -157,6 +119,70 @@ async def meeting_websocket(
             logger.info(
                 "Meeting %s — all gone, handler cleaned up", meeting_id
             )
+
+
+# ============================================================
+# MESSAGE DISPATCH
+# ============================================================
+
+
+async def _handle_binary(
+    handler: MeetingHandler,
+    user_id: uuid.UUID,
+    role: str,
+    audio_bytes: bytes,
+) -> None:
+    """Route binary (audio) frames from Speaker."""
+    if role == "speaker":
+        await handler.handle_audio_chunk(sender_id=user_id, audio_bytes=audio_bytes)
+    else:
+        logger.warning("Reader %s sent audio — ignoring", user_id)
+
+
+async def _handle_text(
+    websocket: WebSocket,
+    handler: MeetingHandler,
+    user_id: uuid.UUID,
+    role: str,
+    meeting_id: uuid.UUID,
+    raw_text: str,
+) -> tuple[bool, bool]:
+    """Route JSON text frames. Returns (should_break, speaker_flushed)."""
+    try:
+        data = json.loads(raw_text)
+    except json.JSONDecodeError:
+        await websocket.send_json({"type": "error", "message": "Invalid JSON"})
+        return False, False
+
+    msg_type = data.get("type")
+
+    if msg_type == "text_message":
+        content = data.get("content", "").strip()
+        if content:
+            await handler.handle_text_message(sender_id=user_id, content=content)
+        return False, False
+
+    if msg_type == "leave":
+        flushed = False
+        if role == "speaker":
+            await handler.handle_speaker_stopped(sender_id=user_id)
+            flushed = True
+        return True, flushed
+
+    if msg_type == "end_meeting":
+        flushed = False
+        if role == "speaker":
+            await handler.handle_speaker_stopped(sender_id=user_id)
+            flushed = True
+        await handler.handle_meeting_ended()
+        await _end_meeting_in_db(meeting_id)
+        return True, flushed
+
+    await websocket.send_json({
+        "type": "error",
+        "message": f"Unknown message type: {msg_type}",
+    })
+    return False, False
 
 
 # ============================================================
@@ -189,7 +215,15 @@ async def _authenticate(
             await websocket.close(code=4000, reason="Auth timeout")
             return None
 
-        data = json.loads(raw)
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            await websocket.send_json({
+                "type": "auth_error",
+                "message": "Invalid JSON in auth message",
+            })
+            await websocket.close(code=4001, reason="Invalid JSON")
+            return None
 
         if data.get("type") != "auth" or "token" not in data:
             await websocket.send_json({
@@ -267,8 +301,8 @@ async def _authenticate(
                 "message": "Authentication failed",
             })
             await websocket.close(code=4000, reason="Auth error")
-        except Exception:
-            pass
+        except Exception as send_err:
+            logger.debug("Failed to send auth error to client: %s", send_err)
         return None
 
 

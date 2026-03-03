@@ -5,7 +5,7 @@ import {
   redirect,
 } from "@tanstack/react-router"
 import { useForm } from "react-hook-form"
-import { type z } from "zod"
+import type { z } from "zod"
 
 import { AuthLayout } from "@/components/Common/AuthLayout"
 import {
