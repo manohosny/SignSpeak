@@ -52,7 +52,7 @@ export function User({ user }: { user: UserPublic | null | undefined }) {
       setOpenMobile(false)
     }
   }
-  const handleLogout = async () => {
+  const handleLogout = () => {
     logout()
   }
 
@@ -66,7 +66,10 @@ export function User({ user }: { user: UserPublic | null | undefined }) {
               className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
               data-testid="user-menu"
             >
-              <UserInfo fullName={user?.full_name ?? undefined} email={user?.email} />
+              <UserInfo
+                fullName={user?.full_name ?? undefined}
+                email={user?.email}
+              />
               <ChevronsUpDown className="ml-auto size-4 text-muted-foreground" />
             </SidebarMenuButton>
           </DropdownMenuTrigger>
@@ -77,7 +80,10 @@ export function User({ user }: { user: UserPublic | null | undefined }) {
             sideOffset={4}
           >
             <DropdownMenuLabel className="p-0 font-normal">
-              <UserInfo fullName={user?.full_name ?? undefined} email={user?.email} />
+              <UserInfo
+                fullName={user?.full_name ?? undefined}
+                email={user?.email}
+              />
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
             <RouterLink to="/settings" onClick={handleMenuClick}>

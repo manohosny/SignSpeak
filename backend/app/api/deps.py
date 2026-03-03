@@ -11,6 +11,11 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.core import security
 from app.core.config import settings
 from app.core.db import engine
+from app.errors import (
+    raise_inactive_user,
+    raise_insufficient_privileges,
+    raise_user_not_found,
+)
 from app.models import TokenPayload, User
 
 reusable_oauth2 = OAuth2PasswordBearer(
@@ -40,9 +45,9 @@ async def get_current_user(session: SessionDep, token: TokenDep) -> User:
         )
     user = await session.get(User, token_data.sub)
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise_user_not_found()
     if not user.is_active:
-        raise HTTPException(status_code=400, detail="Inactive user")
+        raise_inactive_user()
     return user
 
 
@@ -51,7 +56,5 @@ CurrentUser = Annotated[User, Depends(get_current_user)]
 
 def get_current_active_superuser(current_user: CurrentUser) -> User:
     if not current_user.is_superuser:
-        raise HTTPException(
-            status_code=403, detail="The user doesn't have enough privileges"
-        )
+        raise_insufficient_privileges()
     return current_user

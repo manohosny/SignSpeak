@@ -13,23 +13,18 @@ export const confirmPasswordSchema = z
   .string()
   .min(1, { message: "Password confirmation is required" })
 
-export const fullNameSchema = z.string().min(1, { message: "Full Name is required" })
+export const fullNameSchema = z
+  .string()
+  .min(1, { message: "Full Name is required" })
 
 // Helper for password confirmation refinement
 export function withPasswordConfirmation<
   T extends z.ZodType<Record<string, unknown>>,
->(
-  schema: T,
-  passwordField = "password",
-  confirmField = "confirm_password",
-) {
-  return schema.refine(
-    (data) => data[passwordField] === data[confirmField],
-    {
-      message: "The passwords don't match",
-      path: [confirmField],
-    },
-  )
+>(schema: T, passwordField = "password", confirmField = "confirm_password") {
+  return schema.refine((data) => data[passwordField] === data[confirmField], {
+    message: "The passwords don't match",
+    path: [confirmField],
+  })
 }
 
 // Composed schemas
@@ -52,7 +47,9 @@ export const addUserFormSchema = withPasswordConfirmation(
     email: emailSchema,
     full_name: z.string().optional(),
     password: passwordSchema,
-    confirm_password: z.string().min(1, { message: "Please confirm your password" }),
+    confirm_password: z
+      .string()
+      .min(1, { message: "Please confirm your password" }),
     is_superuser: z.boolean(),
     is_active: z.boolean(),
   }),
