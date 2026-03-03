@@ -1,6 +1,7 @@
 export const QUERY_KEYS = {
   CURRENT_USER: "currentUser",
   USERS: "users",
+  MEETINGS: "meetings",
 } as const
 
 export const PAGE_SIZE_OPTIONS = [5, 10, 25, 50] as const

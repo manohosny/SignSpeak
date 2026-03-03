@@ -57,6 +57,15 @@ async def meeting_websocket(
     user_id, display_name, role = auth_result
 
     # ── Phase 2: Register ──
+    # Capture existing participants BEFORE adding the new user so we can
+    # notify the newcomer about who is already in the room.
+    existing_session = manager.get_session(meeting_id)
+    existing_participants = (
+        list(existing_session.participants.values())
+        if existing_session
+        else []
+    )
+
     manager.add_participant(
         meeting_id=meeting_id,
         user_id=user_id,
@@ -66,14 +75,26 @@ async def meeting_websocket(
     )
 
     handler = get_or_create_handler(meeting_id)
-    await handler.handle_user_joined(user_id, display_name, role)
 
+    # Send auth_ok FIRST so the client sets up its state
     await websocket.send_json({
         "type": "auth_ok",
         "user_id": str(user_id),
         "role": role,
         "meeting_id": str(meeting_id),
     })
+
+    # Notify the newcomer about each participant already in the room
+    for p in existing_participants:
+        await websocket.send_json({
+            "type": "user_joined",
+            "user_id": str(p.user_id),
+            "display_name": p.display_name,
+            "role": p.role,
+        })
+
+    # Broadcast the new user's arrival to everyone else
+    await handler.handle_user_joined(user_id, display_name, role)
 
     # ── Phase 3: Message Loop ──
     speaker_flushed = False
