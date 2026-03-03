@@ -3,12 +3,11 @@
 import type { CancelablePromise } from './core/CancelablePromise';
 import { OpenAPI } from './core/OpenAPI';
 import { request as __request } from './core/request';
-import type { LoginLoginAccessTokenData, LoginLoginAccessTokenResponse, LoginTestTokenResponse, LoginRecoverPasswordData, LoginRecoverPasswordResponse, LoginResetPasswordData, LoginResetPasswordResponse, LoginRecoverPasswordHtmlContentData, LoginRecoverPasswordHtmlContentResponse, PrivateCreateUserData, PrivateCreateUserResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserData, UsersCreateUserResponse, UsersReadUserMeResponse, UsersDeleteUserMeResponse, UsersUpdateUserMeData, UsersUpdateUserMeResponse, UsersUpdatePasswordMeData, UsersUpdatePasswordMeResponse, UsersRegisterUserData, UsersRegisterUserResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserData, UsersUpdateUserResponse, UsersDeleteUserData, UsersDeleteUserResponse, UtilsTestEmailData, UtilsTestEmailResponse, UtilsHealthCheckResponse } from './types.gen';
+import type { LoginLoginAccessTokenData, LoginLoginAccessTokenResponse, LoginTestTokenResponse, LoginRecoverPasswordData, LoginRecoverPasswordResponse, LoginResetPasswordData, LoginResetPasswordResponse, LoginRecoverPasswordHtmlContentData, LoginRecoverPasswordHtmlContentResponse, MeetingsCreateMeetingResponse, MeetingsGetMyMeetingsData, MeetingsGetMyMeetingsResponse, MeetingsGetMeetingData, MeetingsGetMeetingResponse, MeetingsJoinMeetingData, MeetingsJoinMeetingResponse, MeetingsEndMeetingData, MeetingsEndMeetingResponse, MeetingsGetMessagesData, MeetingsGetMessagesResponse, PrivateCreateUserData, PrivateCreateUserResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserData, UsersCreateUserResponse, UsersReadUserMeResponse, UsersDeleteUserMeResponse, UsersUpdateUserMeData, UsersUpdateUserMeResponse, UsersUpdatePasswordMeData, UsersUpdatePasswordMeResponse, UsersRegisterUserData, UsersRegisterUserResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserData, UsersUpdateUserResponse, UsersDeleteUserData, UsersDeleteUserResponse, UtilsTestEmailData, UtilsTestEmailResponse, UtilsHealthCheckResponse } from './types.gen';
 
 export class LoginService {
     /**
      * Login Access Token
-     * OAuth2 compatible token login, get an access token for future requests
      * @param data The data for the request.
      * @param data.formData
      * @returns Token Successful Response
@@ -28,7 +27,6 @@ export class LoginService {
     
     /**
      * Test Token
-     * Test access token
      * @returns UserPublic Successful Response
      * @throws ApiError
      */
@@ -41,7 +39,6 @@ export class LoginService {
     
     /**
      * Recover Password
-     * Password Recovery
      * @param data The data for the request.
      * @param data.email
      * @returns Message Successful Response
@@ -62,7 +59,6 @@ export class LoginService {
     
     /**
      * Reset Password
-     * Reset password
      * @param data The data for the request.
      * @param data.requestBody
      * @returns Message Successful Response
@@ -82,7 +78,6 @@ export class LoginService {
     
     /**
      * Recover Password Html Content
-     * HTML Content for Password Recovery
      * @param data The data for the request.
      * @param data.email
      * @returns string Successful Response
@@ -102,10 +97,142 @@ export class LoginService {
     }
 }
 
+export class MeetingsService {
+    /**
+     * Create Meeting
+     * Create a new meeting. The authenticated user becomes the host (speaker).
+     * Returns the meeting details including the shareable code.
+     * @returns MeetingPublic Successful Response
+     * @throws ApiError
+     */
+    public static createMeeting(): CancelablePromise<MeetingsCreateMeetingResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/meetings/'
+        });
+    }
+    
+    /**
+     * Get My Meetings
+     * Get the current user's meeting history.
+     * @param data The data for the request.
+     * @param data.skip
+     * @param data.limit
+     * @returns MeetingsPublic Successful Response
+     * @throws ApiError
+     */
+    public static getMyMeetings(data: MeetingsGetMyMeetingsData = {}): CancelablePromise<MeetingsGetMyMeetingsResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/meetings/',
+            query: {
+                skip: data.skip,
+                limit: data.limit
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Get Meeting
+     * Get meeting details by its shareable code.
+     * @param data The data for the request.
+     * @param data.code
+     * @returns MeetingPublic Successful Response
+     * @throws ApiError
+     */
+    public static getMeeting(data: MeetingsGetMeetingData): CancelablePromise<MeetingsGetMeetingResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/meetings/{code}',
+            path: {
+                code: data.code
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Join Meeting
+     * Join an existing meeting by code. The joiner defaults to 'reader' role.
+     * @param data The data for the request.
+     * @param data.code
+     * @param data.requestBody
+     * @returns MeetingPublic Successful Response
+     * @throws ApiError
+     */
+    public static joinMeeting(data: MeetingsJoinMeetingData): CancelablePromise<MeetingsJoinMeetingResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/meetings/{code}/join',
+            path: {
+                code: data.code
+            },
+            body: data.requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * End Meeting
+     * End a meeting. Only the host or a participant can end it.
+     * @param data The data for the request.
+     * @param data.meetingId
+     * @returns Message Successful Response
+     * @throws ApiError
+     */
+    public static endMeeting(data: MeetingsEndMeetingData): CancelablePromise<MeetingsEndMeetingResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/meetings/{meeting_id}/end',
+            path: {
+                meeting_id: data.meetingId
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Get Messages
+     * Get messages for a meeting. Supports cursor-based pagination.
+     * The 'before' param is an ISO datetime for fetching older messages.
+     * @param data The data for the request.
+     * @param data.meetingId
+     * @param data.limit
+     * @param data.before
+     * @returns MeetingMessagesPublic Successful Response
+     * @throws ApiError
+     */
+    public static getMessages(data: MeetingsGetMessagesData): CancelablePromise<MeetingsGetMessagesResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/meetings/{meeting_id}/messages',
+            path: {
+                meeting_id: data.meetingId
+            },
+            query: {
+                limit: data.limit,
+                before: data.before
+            },
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+}
+
 export class PrivateService {
     /**
      * Create User
-     * Create a new user.
      * @param data The data for the request.
      * @param data.requestBody
      * @returns UserPublic Successful Response
@@ -127,7 +254,6 @@ export class PrivateService {
 export class UsersService {
     /**
      * Read Users
-     * Retrieve users.
      * @param data The data for the request.
      * @param data.skip
      * @param data.limit
@@ -150,7 +276,6 @@ export class UsersService {
     
     /**
      * Create User
-     * Create new user.
      * @param data The data for the request.
      * @param data.requestBody
      * @returns UserPublic Successful Response
@@ -170,7 +295,6 @@ export class UsersService {
     
     /**
      * Read User Me
-     * Get current user.
      * @returns UserPublic Successful Response
      * @throws ApiError
      */
@@ -183,7 +307,6 @@ export class UsersService {
     
     /**
      * Delete User Me
-     * Delete own user.
      * @returns Message Successful Response
      * @throws ApiError
      */
@@ -196,7 +319,6 @@ export class UsersService {
     
     /**
      * Update User Me
-     * Update own user.
      * @param data The data for the request.
      * @param data.requestBody
      * @returns UserPublic Successful Response
@@ -216,7 +338,6 @@ export class UsersService {
     
     /**
      * Update Password Me
-     * Update own password.
      * @param data The data for the request.
      * @param data.requestBody
      * @returns Message Successful Response
@@ -236,7 +357,6 @@ export class UsersService {
     
     /**
      * Register User
-     * Create new user without the need to be logged in.
      * @param data The data for the request.
      * @param data.requestBody
      * @returns UserPublic Successful Response
@@ -256,7 +376,6 @@ export class UsersService {
     
     /**
      * Read User By Id
-     * Get a specific user by id.
      * @param data The data for the request.
      * @param data.userId
      * @returns UserPublic Successful Response
@@ -277,7 +396,6 @@ export class UsersService {
     
     /**
      * Update User
-     * Update a user.
      * @param data The data for the request.
      * @param data.userId
      * @param data.requestBody
@@ -301,7 +419,6 @@ export class UsersService {
     
     /**
      * Delete User
-     * Delete a user.
      * @param data The data for the request.
      * @param data.userId
      * @returns Message Successful Response
@@ -324,7 +441,6 @@ export class UsersService {
 export class UtilsService {
     /**
      * Test Email
-     * Test emails.
      * @param data The data for the request.
      * @param data.emailTo
      * @returns Message Successful Response

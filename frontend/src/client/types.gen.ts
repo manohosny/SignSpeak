@@ -13,20 +13,80 @@ export type HTTPValidationError = {
     detail?: Array<ValidationError>;
 };
 
+/**
+ * Body for POST /api/v1/meetings/{code}/join.
+ */
+export type MeetingJoin = {
+    role?: ParticipantRole;
+};
+
+export type MeetingMessagePublic = {
+    id: string;
+    meeting_id: string;
+    sender_id: string;
+    content: string;
+    msg_type: MessageType;
+    created_at?: (string | null);
+};
+
+/**
+ * Paginated message list for GET /api/v1/meetings/{id}/messages.
+ */
+export type MeetingMessagesPublic = {
+    data: Array<MeetingMessagePublic>;
+    count: number;
+    next_cursor?: (string | null);
+};
+
+export type MeetingParticipantPublic = {
+    id: string;
+    user_id: string;
+    role: ParticipantRole;
+    joined_at?: (string | null);
+    left_at?: (string | null);
+};
+
+/**
+ * Returned after creating or fetching a meeting.
+ */
+export type MeetingPublic = {
+    id: string;
+    code: string;
+    status: MeetingStatus;
+    host_id: string;
+    created_at?: (string | null);
+    started_at?: (string | null);
+    ended_at?: (string | null);
+    participants?: Array<MeetingParticipantPublic>;
+};
+
+/**
+ * Paginated list of meetings (e.g., user history).
+ */
+export type MeetingsPublic = {
+    data: Array<MeetingPublic>;
+    count: number;
+};
+
+export type MeetingStatus = 'waiting' | 'active' | 'ended';
+
 export type Message = {
     message: string;
 };
+
+export type MessageType = 'speech_transcript' | 'text_message';
 
 export type NewPassword = {
     token: string;
     new_password: string;
 };
 
+export type ParticipantRole = 'speaker' | 'reader';
+
 export type PrivateUserCreate = {
     email: string;
     password: string;
     full_name: string;
-    is_verified?: boolean;
 };
 
 export type Token = {
@@ -115,6 +175,42 @@ export type LoginRecoverPasswordHtmlContentData = {
 };
 
 export type LoginRecoverPasswordHtmlContentResponse = (string);
+
+export type MeetingsCreateMeetingResponse = (MeetingPublic);
+
+export type MeetingsGetMyMeetingsData = {
+    limit?: number;
+    skip?: number;
+};
+
+export type MeetingsGetMyMeetingsResponse = (MeetingsPublic);
+
+export type MeetingsGetMeetingData = {
+    code: string;
+};
+
+export type MeetingsGetMeetingResponse = (MeetingPublic);
+
+export type MeetingsJoinMeetingData = {
+    code: string;
+    requestBody?: MeetingJoin;
+};
+
+export type MeetingsJoinMeetingResponse = (MeetingPublic);
+
+export type MeetingsEndMeetingData = {
+    meetingId: string;
+};
+
+export type MeetingsEndMeetingResponse = (Message);
+
+export type MeetingsGetMessagesData = {
+    before?: (string | null);
+    limit?: number;
+    meetingId: string;
+};
+
+export type MeetingsGetMessagesResponse = (MeetingMessagesPublic);
 
 export type PrivateCreateUserData = {
     requestBody: PrivateUserCreate;

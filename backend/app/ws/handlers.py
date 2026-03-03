@@ -107,9 +107,15 @@ class MeetingHandler:
         )
 
         # Synthesize and send audio to Speaker
-        if speaker and tts_engine.is_loaded:
+        if not speaker:
+            logger.warning("TTS skipped — no speaker connected")
+        elif not tts_engine.is_loaded:
+            logger.warning("TTS skipped — engine not loaded")
+        else:
             try:
+                logger.info("TTS: synthesizing %d chars...", len(content))
                 wav_bytes = await tts_engine.synthesize(content)
+                logger.info("TTS: sending %d bytes of audio to speaker", len(wav_bytes))
                 await manager.send_bytes_to_user(
                     meeting_id=self.meeting_id,
                     user_id=speaker.user_id,

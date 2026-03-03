@@ -71,6 +71,232 @@ export const HTTPValidationErrorSchema = {
     title: 'HTTPValidationError'
 } as const;
 
+export const MeetingJoinSchema = {
+    properties: {
+        role: {
+            '$ref': '#/components/schemas/ParticipantRole',
+            default: 'reader'
+        }
+    },
+    type: 'object',
+    title: 'MeetingJoin',
+    description: 'Body for POST /api/v1/meetings/{code}/join.'
+} as const;
+
+export const MeetingMessagePublicSchema = {
+    properties: {
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        },
+        meeting_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Meeting Id'
+        },
+        sender_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Sender Id'
+        },
+        content: {
+            type: 'string',
+            title: 'Content'
+        },
+        msg_type: {
+            '$ref': '#/components/schemas/MessageType'
+        },
+        created_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Created At'
+        }
+    },
+    type: 'object',
+    required: ['id', 'meeting_id', 'sender_id', 'content', 'msg_type'],
+    title: 'MeetingMessagePublic'
+} as const;
+
+export const MeetingMessagesPublicSchema = {
+    properties: {
+        data: {
+            items: {
+                '$ref': '#/components/schemas/MeetingMessagePublic'
+            },
+            type: 'array',
+            title: 'Data'
+        },
+        count: {
+            type: 'integer',
+            title: 'Count'
+        },
+        next_cursor: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Next Cursor'
+        }
+    },
+    type: 'object',
+    required: ['data', 'count'],
+    title: 'MeetingMessagesPublic',
+    description: 'Paginated message list for GET /api/v1/meetings/{id}/messages.'
+} as const;
+
+export const MeetingParticipantPublicSchema = {
+    properties: {
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        },
+        user_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'User Id'
+        },
+        role: {
+            '$ref': '#/components/schemas/ParticipantRole'
+        },
+        joined_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Joined At'
+        },
+        left_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Left At'
+        }
+    },
+    type: 'object',
+    required: ['id', 'user_id', 'role'],
+    title: 'MeetingParticipantPublic'
+} as const;
+
+export const MeetingPublicSchema = {
+    properties: {
+        id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Id'
+        },
+        code: {
+            type: 'string',
+            title: 'Code'
+        },
+        status: {
+            '$ref': '#/components/schemas/MeetingStatus'
+        },
+        host_id: {
+            type: 'string',
+            format: 'uuid',
+            title: 'Host Id'
+        },
+        created_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Created At'
+        },
+        started_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Started At'
+        },
+        ended_at: {
+            anyOf: [
+                {
+                    type: 'string',
+                    format: 'date-time'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Ended At'
+        },
+        participants: {
+            items: {
+                '$ref': '#/components/schemas/MeetingParticipantPublic'
+            },
+            type: 'array',
+            title: 'Participants',
+            default: []
+        }
+    },
+    type: 'object',
+    required: ['id', 'code', 'status', 'host_id'],
+    title: 'MeetingPublic',
+    description: 'Returned after creating or fetching a meeting.'
+} as const;
+
+export const MeetingStatusSchema = {
+    type: 'string',
+    enum: ['waiting', 'active', 'ended'],
+    title: 'MeetingStatus'
+} as const;
+
+export const MeetingsPublicSchema = {
+    properties: {
+        data: {
+            items: {
+                '$ref': '#/components/schemas/MeetingPublic'
+            },
+            type: 'array',
+            title: 'Data'
+        },
+        count: {
+            type: 'integer',
+            title: 'Count'
+        }
+    },
+    type: 'object',
+    required: ['data', 'count'],
+    title: 'MeetingsPublic',
+    description: 'Paginated list of meetings (e.g., user history).'
+} as const;
+
 export const MessageSchema = {
     properties: {
         message: {
@@ -81,6 +307,12 @@ export const MessageSchema = {
     type: 'object',
     required: ['message'],
     title: 'Message'
+} as const;
+
+export const MessageTypeSchema = {
+    type: 'string',
+    enum: ['speech_transcript', 'text_message'],
+    title: 'MessageType'
 } as const;
 
 export const NewPasswordSchema = {
@@ -101,24 +333,30 @@ export const NewPasswordSchema = {
     title: 'NewPassword'
 } as const;
 
+export const ParticipantRoleSchema = {
+    type: 'string',
+    enum: ['speaker', 'reader'],
+    title: 'ParticipantRole'
+} as const;
+
 export const PrivateUserCreateSchema = {
     properties: {
         email: {
             type: 'string',
+            maxLength: 255,
+            format: 'email',
             title: 'Email'
         },
         password: {
             type: 'string',
+            maxLength: 128,
+            minLength: 8,
             title: 'Password'
         },
         full_name: {
             type: 'string',
+            maxLength: 255,
             title: 'Full Name'
-        },
-        is_verified: {
-            type: 'boolean',
-            title: 'Is Verified',
-            default: false
         }
     },
     type: 'object',
