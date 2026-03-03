@@ -14,27 +14,27 @@ router = APIRouter(tags=["login"])
 
 
 @router.post("/login/access-token")
-def login_access_token(
+async def login_access_token(
     session: SessionDep, form_data: Annotated[OAuth2PasswordRequestForm, Depends()]
 ) -> Token:
-    return auth_service.login(
+    return await auth_service.login(
         session=session, email=form_data.username, password=form_data.password
     )
 
 
 @router.post("/login/test-token", response_model=UserPublic)
-def test_token(current_user: CurrentUser) -> UserPublic:
+async def test_token(current_user: CurrentUser) -> UserPublic:
     return current_user
 
 
 @router.post("/password-recovery/{email}")
-def recover_password(email: str, session: SessionDep) -> Message:
-    return auth_service.recover_password(session=session, email=email)
+async def recover_password(email: str, session: SessionDep) -> Message:
+    return await auth_service.recover_password(session=session, email=email)
 
 
 @router.post("/reset-password/")
-def reset_password(session: SessionDep, body: NewPassword) -> Message:
-    return auth_service.reset_password(
+async def reset_password(session: SessionDep, body: NewPassword) -> Message:
+    return await auth_service.reset_password(
         session=session, token=body.token, new_password=body.new_password
     )
 
@@ -44,8 +44,8 @@ def reset_password(session: SessionDep, body: NewPassword) -> Message:
     dependencies=[Depends(get_current_active_superuser)],
     response_class=HTMLResponse,
 )
-def recover_password_html_content(email: str, session: SessionDep) -> Any:
-    user = crud.get_user_by_email(session=session, email=email)
+async def recover_password_html_content(email: str, session: SessionDep) -> Any:
+    user = await crud.get_user_by_email(session=session, email=email)
     if not user:
         raise HTTPException(
             status_code=404,

@@ -1,22 +1,23 @@
 import uuid
 
-from sqlmodel import Session, col, func, select
+from sqlmodel import col, func, select
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.core.security import get_password_hash, verify_password
 from app.models import User, UserCreate, UserUpdate
 
 
-def create_user(*, session: Session, user_create: UserCreate) -> User:
+async def create_user(*, session: AsyncSession, user_create: UserCreate) -> User:
     db_obj = User.model_validate(
         user_create, update={"hashed_password": get_password_hash(user_create.password)}
     )
     session.add(db_obj)
-    session.commit()
-    session.refresh(db_obj)
+    await session.commit()
+    await session.refresh(db_obj)
     return db_obj
 
 
-def update_user(*, session: Session, db_user: User, user_in: UserUpdate) -> User:
+async def update_user(*, session: AsyncSession, db_user: User, user_in: UserUpdate) -> User:
     user_data = user_in.model_dump(exclude_unset=True)
     extra_data = {}
     if "password" in user_data:
@@ -25,15 +26,15 @@ def update_user(*, session: Session, db_user: User, user_in: UserUpdate) -> User
         extra_data["hashed_password"] = hashed_password
     db_user.sqlmodel_update(user_data, update=extra_data)
     session.add(db_user)
-    session.commit()
-    session.refresh(db_user)
+    await session.commit()
+    await session.refresh(db_user)
     return db_user
 
 
-def get_user_by_email(*, session: Session, email: str) -> User | None:
+async def get_user_by_email(*, session: AsyncSession, email: str) -> User | None:
     statement = select(User).where(User.email == email)
-    session_user = session.exec(statement).first()
-    return session_user
+    result = await session.exec(statement)
+    return result.first()
 
 
 # Dummy hash to use for timing attack prevention when user is not found
@@ -41,8 +42,8 @@ def get_user_by_email(*, session: Session, email: str) -> User | None:
 DUMMY_HASH = "$argon2id$v=19$m=65536,t=3,p=4$MjQyZWE1MzBjYjJlZTI0Yw$YTU4NGM5ZTZmYjE2NzZlZjY0ZWY3ZGRkY2U2OWFjNjk"
 
 
-def authenticate(*, session: Session, email: str, password: str) -> User | None:
-    db_user = get_user_by_email(session=session, email=email)
+async def authenticate(*, session: AsyncSession, email: str, password: str) -> User | None:
+    db_user = await get_user_by_email(session=session, email=email)
     if not db_user:
         # Prevent timing attacks by running password verification even when user doesn't exist
         # This ensures the response time is similar whether or not the email exists
@@ -54,37 +55,43 @@ def authenticate(*, session: Session, email: str, password: str) -> User | None:
     if updated_password_hash:
         db_user.hashed_password = updated_password_hash
         session.add(db_user)
-        session.commit()
-        session.refresh(db_user)
+        await session.commit()
+        await session.refresh(db_user)
     return db_user
 
 
-def get_user_by_id(*, session: Session, user_id: uuid.UUID) -> User | None:
-    return session.get(User, user_id)
+async def get_user_by_id(*, session: AsyncSession, user_id: uuid.UUID) -> User | None:
+    return await session.get(User, user_id)
 
 
-def get_users(*, session: Session, skip: int = 0, limit: int = 100) -> tuple[list[User], int]:
+async def get_users(
+    *, session: AsyncSession, skip: int = 0, limit: int = 100
+) -> tuple[list[User], int]:
     count_statement = select(func.count()).select_from(User)
-    count = session.exec(count_statement).one()
+    count_result = await session.exec(count_statement)
+    count = count_result.one()
     statement = select(User).order_by(col(User.created_at).desc()).offset(skip).limit(limit)
-    users = session.exec(statement).all()
+    result = await session.exec(statement)
+    users = result.all()
     return list(users), count
 
 
-def delete_user(*, session: Session, user: User) -> None:
-    session.delete(user)
-    session.commit()
+async def delete_user(*, session: AsyncSession, user: User) -> None:
+    await session.delete(user)
+    await session.commit()
 
 
-def update_user_partial(*, session: Session, db_user: User, update_data: dict) -> User:
+async def update_user_partial(
+    *, session: AsyncSession, db_user: User, update_data: dict
+) -> User:
     db_user.sqlmodel_update(update_data)
     session.add(db_user)
-    session.commit()
-    session.refresh(db_user)
+    await session.commit()
+    await session.refresh(db_user)
     return db_user
 
 
-def set_password(*, session: Session, user: User, hashed_password: str) -> None:
+async def set_password(*, session: AsyncSession, user: User, hashed_password: str) -> None:
     user.hashed_password = hashed_password
     session.add(user)
-    session.commit()
+    await session.commit()

@@ -13,7 +13,7 @@ router = APIRouter(prefix="/utils", tags=["utils"])
     dependencies=[Depends(get_current_active_superuser)],
     status_code=201,
 )
-def test_email(email_to: EmailStr) -> Message:
+async def test_email(email_to: EmailStr) -> Message:
     email_data = generate_test_email(email_to=email_to)
     send_email(
         email_to=email_to,
