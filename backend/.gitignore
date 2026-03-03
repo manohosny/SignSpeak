@@ -6,3 +6,8 @@ app.egg-info
 htmlcov
 .cache
 .venv
+
+# ML model weights (too large for Git)
+*.onnx
+*.bin
+voices/
