@@ -1,4 +1,3 @@
-from typing import Any
 
 from fastapi import APIRouter
 from pydantic import BaseModel, EmailStr, Field
@@ -17,10 +16,10 @@ class PrivateUserCreate(BaseModel):
 
 
 @router.post("/users/", response_model=UserPublic)
-def create_user(user_in: PrivateUserCreate, session: SessionDep) -> UserPublic:
+async def create_user(user_in: PrivateUserCreate, session: SessionDep) -> UserPublic:
     user_create = UserCreate(
         email=user_in.email,
         password=user_in.password,
         full_name=user_in.full_name,
     )
-    return user_service.create_user(session=session, user_in=user_create)
+    return await user_service.create_user(session=session, user_in=user_create)
