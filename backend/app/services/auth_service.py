@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 import jwt
 from jwt.exceptions import InvalidTokenError
-from sqlmodel import Session
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app import crud
 from app.core import security
@@ -19,9 +19,9 @@ from app.services.email_service import (
 )
 
 
-def login(*, session: Session, email: str, password: str) -> Token:
+async def login(*, session: AsyncSession, email: str, password: str) -> Token:
     """Authenticate user and return an access token."""
-    user = crud.authenticate(session=session, email=email, password=password)
+    user = await crud.authenticate(session=session, email=email, password=password)
     if not user:
         raise_incorrect_credentials()
     elif not user.is_active:
@@ -34,12 +34,12 @@ def login(*, session: Session, email: str, password: str) -> Token:
     )
 
 
-def recover_password(*, session: Session, email: str) -> Message:
+async def recover_password(*, session: AsyncSession, email: str) -> Message:
     """Send a password recovery email if the user exists.
 
     Always returns the same message to prevent email enumeration attacks.
     """
-    user = crud.get_user_by_email(session=session, email=email)
+    user = await crud.get_user_by_email(session=session, email=email)
 
     if user:
         password_reset_token = generate_password_reset_token(email=email)
@@ -56,18 +56,18 @@ def recover_password(*, session: Session, email: str) -> Message:
     )
 
 
-def reset_password(*, session: Session, token: str, new_password: str) -> Message:
+async def reset_password(*, session: AsyncSession, token: str, new_password: str) -> Message:
     """Verify a password reset token and update the user's password."""
     email = verify_password_reset_token(token=token)
     if not email:
         raise_invalid_token()
-    user = crud.get_user_by_email(session=session, email=email)
+    user = await crud.get_user_by_email(session=session, email=email)
     if not user:
         raise_invalid_token()
     elif not user.is_active:
         raise_inactive_user()
     user_in_update = UserUpdate(password=new_password)
-    crud.update_user(session=session, db_user=user, user_in=user_in_update)
+    await crud.update_user(session=session, db_user=user, user_in=user_in_update)
     return Message(message="Password updated successfully")
 
 

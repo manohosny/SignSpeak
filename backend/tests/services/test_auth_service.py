@@ -1,5 +1,5 @@
 import uuid
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import HTTPException
@@ -27,23 +27,25 @@ def test_verify_reset_token_invalid() -> None:
     assert result is None
 
 
-def test_login_raises_on_bad_credentials() -> None:
+async def test_login_raises_on_bad_credentials() -> None:
     """login should raise HTTPException with INCORRECT_CREDENTIALS when authentication fails."""
-    mock_session = MagicMock()
+    mock_session = AsyncMock()
 
     with patch("app.services.auth_service.crud") as mock_crud:
-        mock_crud.authenticate.return_value = None
+        mock_crud.authenticate = AsyncMock(return_value=None)
 
         with pytest.raises(HTTPException) as exc_info:
-            login(session=mock_session, email="bad@example.com", password="wrongpass")
+            await login(
+                session=mock_session, email="bad@example.com", password="wrongpass"
+            )
 
         assert exc_info.value.status_code == 400
         assert exc_info.value.detail == INCORRECT_CREDENTIALS
 
 
-def test_login_raises_on_inactive_user() -> None:
+async def test_login_raises_on_inactive_user() -> None:
     """login should raise HTTPException with INACTIVE_USER when user is inactive."""
-    mock_session = MagicMock()
+    mock_session = AsyncMock()
 
     inactive_user = User(
         id=uuid.uuid4(),
@@ -54,10 +56,10 @@ def test_login_raises_on_inactive_user() -> None:
     )
 
     with patch("app.services.auth_service.crud") as mock_crud:
-        mock_crud.authenticate.return_value = inactive_user
+        mock_crud.authenticate = AsyncMock(return_value=inactive_user)
 
         with pytest.raises(HTTPException) as exc_info:
-            login(
+            await login(
                 session=mock_session,
                 email="inactive@example.com",
                 password="somepassword",
