@@ -1,233 +1,238 @@
-# Full Stack FastAPI Template
+# SignSpeak
 
-<a href="https://github.com/fastapi/full-stack-fastapi-template/actions?query=workflow%3A%22Test+Docker+Compose%22" target="_blank"><img src="https://github.com/fastapi/full-stack-fastapi-template/workflows/Test%20Docker%20Compose/badge.svg" alt="Test Docker Compose"></a>
-<a href="https://github.com/fastapi/full-stack-fastapi-template/actions?query=workflow%3A%22Test+Backend%22" target="_blank"><img src="https://github.com/fastapi/full-stack-fastapi-template/workflows/Test%20Backend/badge.svg" alt="Test Backend"></a>
-<a href="https://coverage-badge.samuelcolvin.workers.dev/redirect/fastapi/full-stack-fastapi-template" target="_blank"><img src="https://coverage-badge.samuelcolvin.workers.dev/fastapi/full-stack-fastapi-template.svg" alt="Coverage"></a>
+A real-time accessibility platform that enables seamless communication between speakers and readers. Speakers talk naturally while their speech is transcribed live; readers type messages that are converted to audio for the speaker.
 
-## Technology Stack and Features
+## Features
 
-- ⚡ [**FastAPI**](https://fastapi.tiangolo.com) for the Python backend API.
-  - 🧰 [SQLModel](https://sqlmodel.tiangolo.com) for the Python SQL database interactions (ORM).
-  - 🔍 [Pydantic](https://docs.pydantic.dev), used by FastAPI, for the data validation and settings management.
-  - 💾 [PostgreSQL](https://www.postgresql.org) as the SQL database.
-- 🚀 [React](https://react.dev) for the frontend.
-  - 💃 Using TypeScript, hooks, [Vite](https://vitejs.dev), and other parts of a modern frontend stack.
-  - 🎨 [Tailwind CSS](https://tailwindcss.com) and [shadcn/ui](https://ui.shadcn.com) for the frontend components.
-  - 🤖 An automatically generated frontend client.
-  - 🧪 [Playwright](https://playwright.dev) for End-to-End testing.
-  - 🦇 Dark mode support.
-- 🐋 [Docker Compose](https://www.docker.com) for development and production.
-- 🔒 Secure password hashing by default.
-- 🔑 JWT (JSON Web Token) authentication.
-- 📫 Email based password recovery.
-- 📬 [Mailcatcher](https://mailcatcher.me) for local email testing during development.
-- ✅ Tests with [Pytest](https://pytest.org).
-- 📞 [Traefik](https://traefik.io) as a reverse proxy / load balancer.
-- 🚢 Deployment instructions using Docker Compose, including how to set up a frontend Traefik proxy to handle automatic HTTPS certificates.
-- 🏭 CI (continuous integration) and CD (continuous deployment) based on GitHub Actions.
+- **Speech-to-Text (STT)** — Live transcription using NVIDIA Parakeet TDT 0.6B via NeMo
+- **Text-to-Speech (TTS)** — Message vocalization using Kokoro 82M ONNX
+- **Real-time meetings** — WebSocket-based communication with shareable meeting codes
+- **Role-based participation** — Speaker and reader roles with tailored UIs
+- **Meeting lifecycle** — Create, join, and manage meetings (waiting → active → ended)
+- **User authentication** — JWT-based auth with email password recovery
+- **Dark mode** — Full theme support across the app
 
-### Dashboard Login
+## Tech Stack
 
-[![API docs](img/login.png)](https://github.com/fastapi/full-stack-fastapi-template)
+| Layer | Technology |
+|-------|-----------|
+| **Backend** | FastAPI, SQLModel, PostgreSQL, Alembic |
+| **Frontend** | React 19, TypeScript, TanStack Router/Query, Tailwind CSS, shadcn/ui |
+| **ML/AI** | NVIDIA Parakeet TDT 0.6B (STT), Kokoro 82M ONNX (TTS), PyTorch |
+| **Real-time** | WebSockets (FastAPI native) |
+| **Infrastructure** | Docker Compose, Traefik, Nginx |
+| **Testing** | Pytest (backend), Playwright (E2E), Vitest (unit) |
 
-### Dashboard - Admin
+## Prerequisites
 
-[![API docs](img/dashboard.png)](https://github.com/fastapi/full-stack-fastapi-template)
+- **Docker & Docker Compose** (recommended for full-stack)
+- **Python 3.10+** with [uv](https://docs.astral.sh/uv/) package manager
+- **Bun** (or Node.js) for the frontend
+- **PostgreSQL 12+** (or a cloud provider like Supabase)
 
-### Dashboard - Items
-
-[![API docs](img/dashboard-items.png)](https://github.com/fastapi/full-stack-fastapi-template)
-
-### Dashboard - Dark Mode
-
-[![API docs](img/dashboard-dark.png)](https://github.com/fastapi/full-stack-fastapi-template)
-
-### Interactive API Documentation
-
-[![API docs](img/docs.png)](https://github.com/fastapi/full-stack-fastapi-template)
-
-## How To Use It
-
-You can **just fork or clone** this repository and use it as is.
-
-✨ It just works. ✨
-
-### How to Use a Private Repository
-
-If you want to have a private repository, GitHub won't allow you to simply fork it as it doesn't allow changing the visibility of forks.
-
-But you can do the following:
-
-- Create a new GitHub repo, for example `my-full-stack`.
-- Clone this repository manually, set the name with the name of the project you want to use, for example `my-full-stack`:
+## Quick Start (Docker)
 
 ```bash
-git clone git@github.com:fastapi/full-stack-fastapi-template.git my-full-stack
+# 1. Clone the repository
+git clone <repo-url>
+cd SignSpeak
+
+# 2. Configure environment
+cp .env .env.local   # Edit .env with your database URL, secrets, etc.
+
+# 3. Start all services
+docker compose watch
 ```
 
-- Enter into the new directory:
+This starts:
+
+| Service | URL |
+|---------|-----|
+| Backend API | http://localhost:8000 |
+| API Docs (Swagger) | http://localhost:8000/docs |
+| Frontend | http://localhost:5173 |
+| Mailcatcher (email testing) | http://localhost:1080 |
+| Traefik Dashboard | http://localhost:8090 |
+
+## Local Development (without Docker)
+
+### Backend
 
 ```bash
-cd my-full-stack
+cd backend
+
+# Install dependencies
+uv sync
+
+# Install ML dependencies (optional — requires ~2GB for models)
+uv sync --extra ml
+
+# Run database migrations
+alembic upgrade head
+
+# Seed initial superuser
+python app/initial_data.py
+
+# Start dev server with hot reload
+fastapi dev app/main.py
 ```
 
-- Set the new origin to your new repository, copy it from the GitHub interface, for example:
+The backend runs at http://localhost:8000.
+
+> **Tip:** Set `STT_MOCK_MODE=true` and `TTS_MOCK_MODE=true` in your `.env` to run without downloading ML models during development.
+
+### Frontend
 
 ```bash
-git remote set-url origin git@github.com:octocat/my-full-stack.git
+cd frontend
+
+# Install dependencies
+bun install
+
+# Start dev server
+bun run dev
 ```
 
-- Add this repo as another "remote" to allow you to get updates later:
+The frontend runs at http://localhost:5173.
+
+### Regenerate API Client
+
+When backend API endpoints change, regenerate the typed frontend client:
 
 ```bash
-git remote add upstream git@github.com:fastapi/full-stack-fastapi-template.git
+cd frontend
+bun run generate-client
 ```
 
-- Push the code to your new repository:
+## Environment Variables
 
-```bash
-git push -u origin master
-```
+Key variables in `.env` (see the file for the full list):
 
-### Update From the Original Template
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `SECRET_KEY` | JWT signing key — **change in production** | `changethis` |
+| `DATABASE_URL` | PostgreSQL connection string | *(required)* |
+| `FIRST_SUPERUSER` | Admin email created on first run | `admin@example.com` |
+| `FIRST_SUPERUSER_PASSWORD` | Admin password — **change in production** | `changethis` |
+| `FRONTEND_HOST` | Frontend URL (for CORS and email links) | `http://localhost:5173` |
+| `ENVIRONMENT` | `local`, `staging`, or `production` | `local` |
+| `SMTP_HOST` | SMTP server for emails | *(empty = disabled)* |
+| `SENTRY_DSN` | Sentry error tracking | *(empty = disabled)* |
 
-After cloning the repository, and after doing changes, you might want to get the latest changes from this original template.
-
-- Make sure you added the original repository as a remote, you can check it with:
-
-```bash
-git remote -v
-
-origin    git@github.com:octocat/my-full-stack.git (fetch)
-origin    git@github.com:octocat/my-full-stack.git (push)
-upstream    git@github.com:fastapi/full-stack-fastapi-template.git (fetch)
-upstream    git@github.com:fastapi/full-stack-fastapi-template.git (push)
-```
-
-- Pull the latest changes without merging:
-
-```bash
-git pull --no-commit upstream master
-```
-
-This will download the latest changes from this template without committing them, that way you can check everything is right before committing.
-
-- If there are conflicts, solve them in your editor.
-
-- Once you are done, commit the changes:
-
-```bash
-git merge --continue
-```
-
-### Configure
-
-You can then update configs in the `.env` files to customize your configurations.
-
-Before deploying it, make sure you change at least the values for:
-
-- `SECRET_KEY`
-- `FIRST_SUPERUSER_PASSWORD`
-- `POSTGRES_PASSWORD`
-
-You can (and should) pass these as environment variables from secrets.
-
-Read the [deployment.md](./deployment.md) docs for more details.
-
-### Generate Secret Keys
-
-Some environment variables in the `.env` file have a default value of `changethis`.
-
-You have to change them with a secret key, to generate secret keys you can run the following command:
+Generate a secure secret key:
 
 ```bash
 python -c "import secrets; print(secrets.token_urlsafe(32))"
 ```
 
-Copy the content and use that as password / secret key. And run that again to generate another secure key.
+## Project Structure
 
-## How To Use It - Alternative With Copier
-
-This repository also supports generating a new project using [Copier](https://copier.readthedocs.io).
-
-It will copy all the files, ask you configuration questions, and update the `.env` files with your answers.
-
-### Install Copier
-
-You can install Copier with:
-
-```bash
-pip install copier
+```
+SignSpeak/
+├── backend/
+│   ├── app/
+│   │   ├── main.py                 # FastAPI entry point & ML model lifecycle
+│   │   ├── models.py               # SQLModel database models
+│   │   ├── api/
+│   │   │   ├── deps.py             # Dependency injection (auth, DB sessions)
+│   │   │   └── routes/             # REST endpoints (login, users, meetings)
+│   │   ├── core/
+│   │   │   ├── config.py           # Pydantic settings from .env
+│   │   │   ├── db.py               # Async database engine
+│   │   │   └── security.py         # Password hashing & JWT
+│   │   ├── ml/
+│   │   │   ├── stt.py              # Speech-to-Text engine
+│   │   │   ├── tts.py              # Text-to-Speech engine
+│   │   │   └── audio_utils.py      # Audio format conversion
+│   │   ├── ws/
+│   │   │   ├── router.py           # WebSocket endpoint
+│   │   │   ├── connection_manager.py
+│   │   │   └── handlers.py         # STT/TTS message routing
+│   │   └── services/               # Business logic layer
+│   ├── scripts/                    # Prestart, test, lint scripts
+│   ├── tests/
+│   └── pyproject.toml
+├── frontend/
+│   ├── src/
+│   │   ├── routes/                 # TanStack Router pages
+│   │   ├── components/
+│   │   │   ├── Meeting/            # SpeakerView, ReaderView, WaitingRoom
+│   │   │   └── ui/                 # shadcn/ui components
+│   │   ├── hooks/                  # useAuth, useMeeting (WebSocket)
+│   │   └── client/                 # Auto-generated OpenAPI client
+│   ├── tests/                      # Playwright E2E tests
+│   └── package.json
+├── compose.yml                     # Production Docker Compose
+├── compose.override.yml            # Dev overrides (hot reload, mailcatcher)
+├── .env                            # Environment configuration
+├── development.md                  # Detailed development guide
+└── deployment.md                   # Production deployment guide
 ```
 
-Or better, if you have [`pipx`](https://pipx.pypa.io/), you can run it with:
+## How It Works
+
+1. A **speaker** creates a meeting and gets a shareable code (e.g., `XKF-8291`)
+2. A **reader** joins using the code
+3. The speaker's audio is streamed via WebSocket → the backend runs **STT** → transcripts are broadcast to the reader in real-time
+4. The reader types messages → the backend runs **TTS** → audio is sent back to the speaker
+
+## Common Commands
+
+### Backend (Docker)
 
 ```bash
-pipx install copier
+# Run tests
+docker compose exec backend bash scripts/tests-start.sh
+
+# Create a new migration
+docker compose exec backend alembic revision --autogenerate -m "description"
+
+# Apply migrations
+docker compose exec backend alembic upgrade head
+
+# Open a shell
+docker compose exec backend bash
 ```
 
-**Note**: If you have `pipx`, installing copier is optional, you could run it directly.
-
-### Generate a Project With Copier
-
-Decide a name for your new project's directory, you will use it below. For example, `my-awesome-project`.
-
-Go to the directory that will be the parent of your project, and run the command with your project's name:
+### Backend (local)
 
 ```bash
-copier copy https://github.com/fastapi/full-stack-fastapi-template my-awesome-project --trust
+cd backend
+pytest                              # Run tests
+ruff check .                        # Lint
+ruff format .                       # Format
+mypy app                            # Type check
 ```
 
-If you have `pipx` and you didn't install `copier`, you can run it directly:
+### Frontend
 
 ```bash
-pipx run copier copy https://github.com/fastapi/full-stack-fastapi-template my-awesome-project --trust
+cd frontend
+bun run dev                         # Dev server
+bun run build                       # Production build
+bun run test                        # E2E tests (Playwright)
+bun run test:unit                   # Unit tests (Vitest)
+bun run lint                        # Lint & format (Biome)
+bun run generate-client             # Regenerate API client
 ```
 
-**Note** the `--trust` option is necessary to be able to execute a [post-creation script](https://github.com/fastapi/full-stack-fastapi-template/blob/master/.copier/update_dotenv.py) that updates your `.env` files.
+## ML Models
 
-### Input Variables
+The STT and TTS models are loaded at backend startup. To run without them (for frontend-focused work or CI):
 
-Copier will ask you for some data, you might want to have at hand before generating the project.
+```bash
+# In .env
+STT_MOCK_MODE=true
+TTS_MOCK_MODE=true
+```
 
-But don't worry, you can just update any of that in the `.env` files afterwards.
+When ML is enabled, the backend requires:
+- **STT**: Downloads automatically via NeMo toolkit (~600MB)
+- **TTS**: Requires `kokoro-v1.0.onnx` (~325MB) and `voices-v1.0.bin` (~28MB) — place in the backend working directory
 
-The input variables, with their default values (some auto generated) are:
+## Further Documentation
 
-- `project_name`: (default: `"FastAPI Project"`) The name of the project, shown to API users (in .env).
-- `stack_name`: (default: `"fastapi-project"`) The name of the stack used for Docker Compose labels and project name (no spaces, no periods) (in .env).
-- `secret_key`: (default: `"changethis"`) The secret key for the project, used for security, stored in .env, you can generate one with the method above.
-- `first_superuser`: (default: `"admin@example.com"`) The email of the first superuser (in .env).
-- `first_superuser_password`: (default: `"changethis"`) The password of the first superuser (in .env).
-- `smtp_host`: (default: "") The SMTP server host to send emails, you can set it later in .env.
-- `smtp_user`: (default: "") The SMTP server user to send emails, you can set it later in .env.
-- `smtp_password`: (default: "") The SMTP server password to send emails, you can set it later in .env.
-- `emails_from_email`: (default: `"info@example.com"`) The email account to send emails from, you can set it later in .env.
-- `postgres_password`: (default: `"changethis"`) The password for the PostgreSQL database, stored in .env, you can generate one with the method above.
-- `sentry_dsn`: (default: "") The DSN for Sentry, if you are using it, you can set it later in .env.
-
-## Backend Development
-
-Backend docs: [backend/README.md](./backend/README.md).
-
-## Frontend Development
-
-Frontend docs: [frontend/README.md](./frontend/README.md).
-
-## Deployment
-
-Deployment docs: [deployment.md](./deployment.md).
-
-## Development
-
-General development docs: [development.md](./development.md).
-
-This includes using Docker Compose, custom local domains, `.env` configurations, etc.
-
-## Release Notes
-
-Check the file [release-notes.md](./release-notes.md).
-
-## License
-
-The Full Stack FastAPI Template is licensed under the terms of the MIT license.
+- [Development Guide](./development.md) — Docker Compose workflows, local domains, pre-commit hooks
+- [Deployment Guide](./deployment.md) — Production setup with Traefik and HTTPS
+- [Backend README](./backend/README.md) — Backend-specific setup and testing
+- [Frontend README](./frontend/README.md) — Frontend-specific setup and E2E testing
