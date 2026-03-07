@@ -30,11 +30,13 @@ A real-time accessibility platform that enables seamless communication between s
 - **Bun** (or Node.js) for the frontend
 - **PostgreSQL 12+** (or a cloud provider like Supabase)
 
+> **macOS (Apple Silicon) Note:** When running `uv sync --extra ml`, uv will automatically resolve a compatible version of `kaldialign` (≥0.9.2) for ARM64. If you hit a platform error, ensure the root `pyproject.toml` includes the `kaldialign>=0.9.2` override (already included in this repo).
+
 ## Quick Start (Docker)
 
 ```bash
 # 1. Clone the repository
-git clone <repo-url>
+git clone git@github.com:manohosny/SignSpeak.git
 cd SignSpeak
 
 # 2. Configure environment
@@ -61,25 +63,27 @@ This starts:
 ```bash
 cd backend
 
-# Install dependencies
+# Option A — without ML models (faster, mock mode)
 uv sync
 
-# Install ML dependencies (optional — requires ~2GB for models)
+# Option B — with ML models (STT + TTS, ~2GB download)
 uv sync --extra ml
+```
 
+> **Important:** `uv sync` and `uv sync --extra ml` are mutually exclusive syncs — running plain `uv sync` after `uv sync --extra ml` will **remove** the ML packages (`torch`, `kokoro-onnx`, etc.). Pick one and stick with it. Use `STT_MOCK_MODE=true` / `TTS_MOCK_MODE=true` in `.env` if running without ML.
+
+```bash
 # Run database migrations
-alembic upgrade head
+uv run alembic upgrade head
 
 # Seed initial superuser
-python app/initial_data.py
+uv run python app/initial_data.py
 
 # Start dev server with hot reload
-fastapi dev app/main.py
+uv run fastapi dev app/main.py
 ```
 
 The backend runs at http://localhost:8000.
-
-> **Tip:** Set `STT_MOCK_MODE=true` and `TTS_MOCK_MODE=true` in your `.env` to run without downloading ML models during development.
 
 ### Frontend
 
@@ -198,10 +202,10 @@ docker compose exec backend bash
 
 ```bash
 cd backend
-pytest                              # Run tests
-ruff check .                        # Lint
-ruff format .                       # Format
-mypy app                            # Type check
+uv run pytest                       # Run tests
+uv run ruff check .                 # Lint
+uv run ruff format .                # Format
+uv run mypy app                     # Type check
 ```
 
 ### Frontend
