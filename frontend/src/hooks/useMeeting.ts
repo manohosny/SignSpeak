@@ -98,19 +98,37 @@ export function useMeeting(meetingCode: string) {
         setPartnerJoined(false)
         break
 
-      case "transcript":
-        setTranscript((prev) => [
-          ...prev,
-          {
-            id: `t-${Date.now()}-${Math.random()}`,
-            type: "transcript",
-            content: msg.text,
-            senderId: msg.sender_id,
-            senderRole: "speaker",
-            timestamp: msg.timestamp,
-          },
-        ])
+      case "transcript": {
+        const entryId = msg.utterance_id || `t-${Date.now()}-${Math.random()}`
+        setTranscript((prev) => {
+          // If this transcript has an utterance_id and a partial with the
+          // same ID already exists, replace it instead of appending.
+          if (msg.utterance_id) {
+            const idx = prev.findIndex((e) => e.id === entryId)
+            if (idx !== -1) {
+              const updated = [...prev]
+              updated[idx] = {
+                ...updated[idx],
+                content: msg.text,
+                timestamp: msg.timestamp,
+              }
+              return updated
+            }
+          }
+          return [
+            ...prev,
+            {
+              id: entryId,
+              type: "transcript",
+              content: msg.text,
+              senderId: msg.sender_id,
+              senderRole: "speaker",
+              timestamp: msg.timestamp,
+            },
+          ]
+        })
         break
+      }
 
       case "text_message":
         setTranscript((prev) => [
@@ -187,10 +205,22 @@ export function useMeeting(meetingCode: string) {
     [sendBinary],
   )
 
-  const { isRecording, startRecording, stopRecording } = useAudioRecorder({
-    onAudioChunk: handleAudioChunk,
-    enabled: role === "speaker" && meetingState === "active",
-  })
+  const handleVadChange = useCallback(
+    (speaking: boolean) => {
+      if (!speaking) {
+        // Speaker stopped talking — tell the backend to flush STT buffer
+        sendJson({ type: "control", action: "utterance_end" })
+      }
+    },
+    [sendJson],
+  )
+
+  const { isRecording, isSpeaking, startRecording, stopRecording } =
+    useAudioRecorder({
+      onAudioChunk: handleAudioChunk,
+      onVadChange: handleVadChange,
+      enabled: role === "speaker" && meetingState === "active",
+    })
 
   // ── Actions ──
   const sendTextMessage = useCallback(
@@ -241,6 +271,7 @@ export function useMeeting(meetingCode: string) {
     endMeeting,
     toggleMic,
     isMicOn,
+    isSpeaking,
     unlockAudio,
   }
 }

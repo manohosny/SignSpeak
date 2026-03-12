@@ -84,6 +84,12 @@ class Settings(BaseSettings):
             path=self.POSTGRES_DB,
         )
 
+    # ── ML / Audio Pipeline ──
+    STT_BUFFER_MODE: str = "utterance"  # "utterance" | "fixed"
+
+    # ── Redis (optional, for multi-server WebSocket scaling) ──
+    REDIS_URL: str | None = None
+
     SMTP_TLS: bool = True
     SMTP_SSL: bool = False
     SMTP_PORT: int = 587

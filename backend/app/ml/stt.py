@@ -217,34 +217,94 @@ class STTEngine:
 
 
 class StreamingSTTBuffer:
-    """Per-meeting audio buffer with overlap and silence detection.
+    """Per-meeting audio buffer supporting fixed-window and utterance modes.
 
-    Adapted from StreamingTranscriber in the working script.
+    Modes:
+        "fixed"     — Original 2-second chunk windows with overlap and RMS
+                      silence detection. Backend-driven boundaries.
+        "utterance" — Accumulates audio until the frontend signals an
+                      utterance boundary via ``flush_utterance()``, or the
+                      ``max_utterance_duration`` safety cap is hit.
 
-    Usage:
-        buffer = StreamingSTTBuffer()
+    Usage (utterance mode):
+        buffer = StreamingSTTBuffer(mode="utterance")
+        buffer.feed(pcm_float32)
+
+        # Periodic check — has_partial for interim transcripts
+        if buffer.has_partial:
+            audio, uid = buffer.peek_utterance()
+            partial = await stt_engine.transcribe(audio)
+
+        # Safety cap — continuous speech > max_utterance_duration
+        if buffer.ready:
+            audio, uid = buffer.get_chunk()
+            final = await stt_engine.transcribe(audio)
+
+        # Frontend sends utterance_end control message
+        result = buffer.flush_utterance()
+        if result is not None:
+            audio, uid = result
+            final = await stt_engine.transcribe(audio)
+
+    Usage (fixed mode — unchanged):
+        buffer = StreamingSTTBuffer(mode="fixed")
         buffer.feed(pcm_float32)
         if buffer.ready:
-            audio = buffer.get_chunk()   # None if silent
+            audio = buffer.get_chunk()
             if audio is not None:
                 transcript = await stt_engine.transcribe(audio)
     """
 
+    # Minimum buffer length to consider for transcription (100ms at 16kHz)
+    MIN_UTTERANCE_SAMPLES = 1600
+
     def __init__(
         self,
         sample_rate: int = DEFAULT_SAMPLE_RATE,
+        mode: str = "utterance",
+        # Fixed-mode parameters (original defaults)
         chunk_duration: float = DEFAULT_CHUNK_DURATION,
         overlap_duration: float = DEFAULT_OVERLAP_DURATION,
         silence_threshold: float = DEFAULT_SILENCE_THRESHOLD,
+        # Utterance-mode parameters
+        max_utterance_duration: float = 10.0,
+        partial_threshold: float = 2.0,
     ) -> None:
         self.sample_rate = sample_rate
+        self.mode = mode
+
+        # Fixed-mode settings
         self.chunk_samples = int(chunk_duration * sample_rate)
         self.overlap_samples = int(overlap_duration * sample_rate)
         self.silence_threshold = silence_threshold
 
+        # Utterance-mode settings
+        self.max_utterance_samples = int(max_utterance_duration * sample_rate)
+        self.partial_threshold_samples = int(partial_threshold * sample_rate)
+
+        # Shared state
         self._buffer = np.array([], dtype=np.float32)
         self._prev_overlap = np.array([], dtype=np.float32)
         self._lock = threading.Lock()
+
+        # Utterance tracking
+        self._current_utterance_id: str | None = None
+
+    def _ensure_utterance_id(self) -> None:
+        """Generate a new utterance_id if we don't have one."""
+        if self._current_utterance_id is None:
+            import uuid
+
+            self._current_utterance_id = str(uuid.uuid4())
+
+    def _rotate_utterance_id(self) -> None:
+        """Force a new utterance_id (used after safety-cap flush)."""
+        self._current_utterance_id = None
+
+    @property
+    def utterance_id(self) -> str | None:
+        """Current utterance ID, or None if buffer is empty."""
+        return self._current_utterance_id
 
     def feed(self, audio: np.ndarray) -> None:
         """Append audio samples. Thread-safe."""
@@ -252,21 +312,48 @@ class StreamingSTTBuffer:
             self._buffer = np.concatenate(
                 [self._buffer, audio.astype(np.float32)]
             )
+            if self.mode == "utterance" and len(self._buffer) > 0:
+                self._ensure_utterance_id()
 
     @property
     def ready(self) -> bool:
-        """True when buffer has >= chunk_duration of audio."""
-        return len(self._buffer) >= self.chunk_samples
+        """True when buffer should be flushed.
+
+        Fixed mode: buffer >= chunk_duration.
+        Utterance mode: only when max_utterance_duration safety cap is hit.
+        """
+        if self.mode == "fixed":
+            return len(self._buffer) >= self.chunk_samples
+        # Utterance mode — safety cap
+        return len(self._buffer) >= self.max_utterance_samples
+
+    @property
+    def has_partial(self) -> bool:
+        """True when utterance-mode buffer has enough audio for a partial.
+
+        Only meaningful in utterance mode. Returns False in fixed mode.
+        """
+        if self.mode != "utterance":
+            return False
+        return len(self._buffer) >= self.partial_threshold_samples
 
     @property
     def duration(self) -> float:
         return len(self._buffer) / self.sample_rate
 
-    def get_chunk(self) -> np.ndarray | None:
-        """Extract one chunk with overlap for continuity.
+    def get_chunk(self) -> np.ndarray | tuple[np.ndarray, str] | None:
+        """Extract one chunk.
 
-        Returns None if chunk is silent (below RMS threshold).
+        Fixed mode: returns np.ndarray or None (silent).
+        Utterance mode (safety-cap): returns (np.ndarray, utterance_id) or None.
+        Auto-rotates utterance_id after safety-cap flush.
         """
+        if self.mode == "fixed":
+            return self._get_chunk_fixed()
+        return self._get_chunk_utterance_cap()
+
+    def _get_chunk_fixed(self) -> np.ndarray | None:
+        """Original fixed-window chunk extraction."""
         with self._lock:
             if len(self._buffer) < self.chunk_samples:
                 return None
@@ -289,8 +376,60 @@ class StreamingSTTBuffer:
 
         return full_audio
 
-    def flush(self) -> np.ndarray | None:
-        """Get remaining audio. Call when speaker stops or meeting ends."""
+    def _get_chunk_utterance_cap(self) -> tuple[np.ndarray, str] | None:
+        """Safety-cap flush for utterance mode (continuous speech > max).
+
+        No RMS silence check here — in utterance mode, the frontend VAD
+        already strips silence. Discarding 10s of accumulated audio on
+        a false RMS reading would be a destructive failure mode.
+        """
+        with self._lock:
+            if len(self._buffer) < self.max_utterance_samples:
+                return None
+
+            audio = self._buffer.copy()
+            self._buffer = np.array([], dtype=np.float32)
+            uid = self._current_utterance_id or ""
+            # Rotate ID so subsequent audio gets a new one (Edge Case #1)
+            self._rotate_utterance_id()
+
+        return (audio, uid)
+
+    def flush_utterance(self) -> tuple[np.ndarray, str] | None:
+        """Flush buffer on frontend utterance_end signal.
+
+        Returns (audio, utterance_id) or None if buffer too short (< 100ms).
+        Idempotent: consecutive calls on an empty buffer return None (Edge Case #2).
+        """
+        with self._lock:
+            if len(self._buffer) < self.MIN_UTTERANCE_SAMPLES:
+                return None
+
+            audio = self._buffer.copy()
+            self._buffer = np.array([], dtype=np.float32)
+            uid = self._current_utterance_id or ""
+            self._rotate_utterance_id()
+
+        return (audio, uid)
+
+    def peek_utterance(self) -> tuple[np.ndarray, str] | None:
+        """Get a copy of accumulated audio without consuming it.
+
+        Used for partial (interim) transcripts.
+        """
+        with self._lock:
+            if len(self._buffer) < self.MIN_UTTERANCE_SAMPLES:
+                return None
+            audio = self._buffer.copy()
+            uid = self._current_utterance_id or ""
+        return (audio, uid)
+
+    def flush(self) -> np.ndarray | tuple[np.ndarray, str] | None:
+        """Get remaining audio. Call when speaker stops or meeting ends.
+
+        Fixed mode: returns np.ndarray or None.
+        Utterance mode: returns (np.ndarray, utterance_id) or None.
+        """
         with self._lock:
             if len(self._buffer) < self.sample_rate * 0.2:
                 return None
@@ -298,19 +437,25 @@ class StreamingSTTBuffer:
             audio = self._buffer.copy()
             self._buffer = np.array([], dtype=np.float32)
 
-            if len(self._prev_overlap) > 0:
+            if self.mode == "fixed" and len(self._prev_overlap) > 0:
                 audio = np.concatenate([self._prev_overlap, audio])
             self._prev_overlap = np.array([], dtype=np.float32)
+
+            uid = self._current_utterance_id
+            self._rotate_utterance_id()
 
         if _rms(audio) < self.silence_threshold:
             return None
 
+        if self.mode == "utterance":
+            return (audio, uid or "")
         return audio
 
     def clear(self) -> None:
         with self._lock:
             self._buffer = np.array([], dtype=np.float32)
             self._prev_overlap = np.array([], dtype=np.float32)
+            self._rotate_utterance_id()
 
 
 # ── Singleton ─────────────────────────────────────────────────
