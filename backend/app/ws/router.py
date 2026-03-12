@@ -66,7 +66,7 @@ async def meeting_websocket(
         else []
     )
 
-    manager.add_participant(
+    await manager.add_participant(
         meeting_id=meeting_id,
         user_id=user_id,
         display_name=display_name,
@@ -130,7 +130,7 @@ async def meeting_websocket(
             await handler.handle_speaker_stopped(sender_id=user_id)
 
         await handler.handle_user_left(user_id, display_name)
-        manager.remove_participant(meeting_id, user_id)
+        await manager.remove_participant(meeting_id, user_id)
 
         await _mark_participant_left(meeting_id, user_id)
 
@@ -198,6 +198,12 @@ async def _handle_text(
         await handler.handle_meeting_ended()
         await _end_meeting_in_db(meeting_id)
         return True, flushed
+
+    if msg_type == "control":
+        action = data.get("action")
+        if action == "utterance_end" and role == "speaker":
+            await handler.handle_utterance_end(sender_id=user_id)
+        return False, False
 
     await websocket.send_json({
         "type": "error",
