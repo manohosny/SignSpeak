@@ -195,6 +195,8 @@ export function useMeeting(meetingCode: string) {
   useEffect(() => {
     if (wsState === "authenticating") {
       setMeetingState("authenticating")
+    } else if (wsState === "reconnecting") {
+      setMeetingState("connecting")
     }
   }, [wsState])
 

@@ -6,6 +6,7 @@ type WsState =
   | "connecting"
   | "authenticating"
   | "authenticated"
+  | "reconnecting"
   | "disconnected"
   | "error"
 
@@ -17,6 +18,9 @@ interface UseWebSocketOptions {
   onDisconnect: () => void
   enabled: boolean
 }
+
+const MAX_RETRIES = 5
+const BASE_DELAY = 1000 // 1 second
 
 export function useWebSocket({
   meetingId,
@@ -40,59 +44,81 @@ export function useWebSocket({
     const apiUrl = import.meta.env.VITE_API_URL as string
     const wsUrl = `${apiUrl.replace(/^http/, "ws")}/ws/${meetingId}`
 
-    setState("connecting")
-    setError(null)
-
+    let retryCount = 0
+    let retryTimeout: ReturnType<typeof setTimeout> | null = null
+    let intentionalClose = false
     let authFailed = false
 
-    const ws = new WebSocket(wsUrl)
-    ws.binaryType = "arraybuffer"
-    wsRef.current = ws
+    function connect() {
+      setState(retryCount === 0 ? "connecting" : "reconnecting")
+      setError(null)
 
-    ws.onopen = () => {
-      setState("authenticating")
-      ws.send(JSON.stringify({ type: "auth", token }))
-    }
+      const ws = new WebSocket(wsUrl)
+      ws.binaryType = "arraybuffer"
+      wsRef.current = ws
 
-    ws.onmessage = (event) => {
-      if (typeof event.data === "string") {
-        try {
-          const msg = JSON.parse(event.data) as WsServerMessage
-          if (msg.type === "auth_ok") {
-            setState("authenticated")
-          } else if (msg.type === "auth_error") {
-            authFailed = true
-            setState("error")
-            setError(msg.message)
-            return
+      ws.onopen = () => {
+        retryCount = 0
+        setState("authenticating")
+        ws.send(JSON.stringify({ type: "auth", token }))
+      }
+
+      ws.onmessage = (event) => {
+        if (typeof event.data === "string") {
+          try {
+            const msg = JSON.parse(event.data) as WsServerMessage
+            if (msg.type === "auth_ok") {
+              setState("authenticated")
+            } else if (msg.type === "auth_error") {
+              authFailed = true
+              setState("error")
+              setError(msg.message)
+              return
+            }
+            callbacksRef.current.onMessage(msg)
+          } catch {
+            // Non-JSON text frame — ignore
           }
-          callbacksRef.current.onMessage(msg)
-        } catch {
-          // Non-JSON text frame — ignore
+        } else {
+          callbacksRef.current.onBinaryMessage(event.data as ArrayBuffer)
         }
-      } else {
-        callbacksRef.current.onBinaryMessage(event.data as ArrayBuffer)
+      }
+
+      ws.onerror = () => {
+        // onerror is always followed by onclose — let onclose handle retry
+      }
+
+      ws.onclose = () => {
+        if (intentionalClose || authFailed) return
+
+        if (retryCount < MAX_RETRIES) {
+          setState("reconnecting")
+          const delay = Math.min(BASE_DELAY * 2 ** retryCount, 30000)
+          console.log(
+            `[WebSocket] reconnecting in ${delay}ms (attempt ${retryCount + 1}/${MAX_RETRIES})`,
+          )
+          retryTimeout = setTimeout(() => {
+            retryCount++
+            connect()
+          }, delay)
+        } else {
+          setState("error")
+          setError("Connection lost — please refresh")
+          callbacksRef.current.onDisconnect()
+        }
       }
     }
 
-    ws.onerror = () => {
-      setState("error")
-      setError("WebSocket connection error")
-    }
-
-    ws.onclose = () => {
-      // Don't overwrite auth_error — it already set the error state
-      if (authFailed) return
-      setState("disconnected")
-      callbacksRef.current.onDisconnect()
-    }
+    connect()
 
     return () => {
-      // Send leave before closing
-      if (ws.readyState === WebSocket.OPEN) {
+      intentionalClose = true
+      if (retryTimeout) clearTimeout(retryTimeout)
+      const ws = wsRef.current
+      if (ws?.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: "leave" }))
       }
-      ws.close()
+      ws?.close()
       wsRef.current = null
     }
   }, [enabled, meetingId, token])
