@@ -1,110 +1,122 @@
-import { useCallback, useRef, useState } from "react"
-
-import { createWavBlobUrl } from "@/lib/audio"
+import { useCallback, useEffect, useRef, useState } from "react"
 
 /**
- * Plays WAV audio received from TTS.
+ * Plays WAV audio received from TTS via the Web Audio API.
  *
- * Uses HTMLAudioElement with a persistent element that gets "unlocked"
- * during a user gesture. Once unlocked, subsequent plays work even
- * from WebSocket callbacks.
+ * Uses AudioContext + decodeAudioData + AudioBufferSourceNode instead of
+ * HTMLAudioElement. Once the AudioContext is resume()'d during a user
+ * gesture, all subsequent programmatic plays work — even from WebSocket
+ * callbacks — without needing per-play gesture authorization.
+ *
+ * Registers document-level event listeners that auto-unlock the
+ * AudioContext on the user's very first interaction with the page.
  */
 export function useAudioPlayer() {
-  const [isPlaying, setIsPlaying] = useState(false)
-  const queueRef = useRef<string[]>([])
+  const ctxRef = useRef<AudioContext | null>(null)
+  const queueRef = useRef<ArrayBuffer[]>([])
   const playingRef = useRef(false)
-  const audioRef = useRef<HTMLAudioElement | null>(null)
-  const unlockedRef = useRef(false)
+  const [isPlaying, setIsPlaying] = useState(false)
+  const [hasPendingAudio, setHasPendingAudio] = useState(false)
 
-  const getAudio = useCallback(() => {
-    if (!audioRef.current) {
-      audioRef.current = new Audio()
+  const getCtx = useCallback(() => {
+    if (!ctxRef.current) {
+      ctxRef.current = new AudioContext()
     }
-    return audioRef.current
+    return ctxRef.current
   }, [])
 
-  const playNext = useCallback(() => {
-    if (queueRef.current.length === 0) {
+  const playNext = useCallback(async () => {
+    const ctx = getCtx()
+    if (queueRef.current.length === 0 || ctx.state !== "running") {
       playingRef.current = false
       setIsPlaying(false)
+      if (queueRef.current.length === 0) {
+        setHasPendingAudio(false)
+      }
       return
     }
 
     playingRef.current = true
     setIsPlaying(true)
 
-    const url = queueRef.current.shift()!
-    const audio = getAudio()
-
-    audio.onended = () => {
-      URL.revokeObjectURL(url)
+    const wavData = queueRef.current.shift()!
+    if (queueRef.current.length === 0) {
+      setHasPendingAudio(false)
+    }
+    try {
+      const audioBuffer = await ctx.decodeAudioData(wavData)
+      const source = ctx.createBufferSource()
+      source.buffer = audioBuffer
+      source.connect(ctx.destination)
+      source.onended = () => playNext()
+      source.start()
+    } catch (err) {
+      console.error("[AudioPlayer] decode/play error:", err)
       playNext()
     }
-
-    audio.onerror = () => {
-      console.error("[AudioPlayer] playback error for", url)
-      URL.revokeObjectURL(url)
-      playNext()
-    }
-
-    audio.src = url
-    audio.play().catch((err) => {
-      console.error("[AudioPlayer] play() rejected:", err)
-      URL.revokeObjectURL(url)
-      playNext()
-    })
-  }, [getAudio])
+  }, [getCtx])
 
   const playAudio = useCallback(
     (wavData: ArrayBuffer) => {
+      const ctx = getCtx()
       console.log(
         "[AudioPlayer] received audio:",
         wavData.byteLength,
-        "bytes, unlocked:",
-        unlockedRef.current,
+        "bytes, ctx state:",
+        ctx.state,
       )
-      const url = createWavBlobUrl(wavData)
-      queueRef.current.push(url)
+      queueRef.current.push(wavData)
+
+      if (ctx.state !== "running") {
+        setHasPendingAudio(true)
+      }
+
       if (!playingRef.current) {
         playNext()
       }
     },
-    [playNext],
+    [getCtx, playNext],
   )
 
   const stopAudio = useCallback(() => {
-    const audio = audioRef.current
-    if (audio) {
-      audio.pause()
-      audio.onended = null
-      audio.onerror = null
-    }
-    for (const url of queueRef.current) {
-      URL.revokeObjectURL(url)
-    }
     queueRef.current = []
     playingRef.current = false
     setIsPlaying(false)
+    setHasPendingAudio(false)
   }, [])
 
-  // Call during a user gesture (e.g. mic button click) to unlock
-  // audio playback for subsequent programmatic play() calls.
+  // Resume AudioContext during a user gesture (click, tap, keypress, etc.).
+  // Once resumed, it stays running for the lifetime of the page.
   const unlockAudio = useCallback(() => {
-    if (unlockedRef.current) return
-    const audio = getAudio()
-    // Play a silent data URI to satisfy autoplay policy
-    audio.src =
-      "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA="
-    audio
-      .play()
-      .then(() => {
-        unlockedRef.current = true
-        console.log("[AudioPlayer] unlocked via user gesture")
+    const ctx = getCtx()
+    if (ctx.state === "suspended") {
+      ctx.resume().then(() => {
+        console.log("[AudioPlayer] AudioContext resumed")
+        setHasPendingAudio(false)
+        // Drain any audio that was queued while suspended
+        if (queueRef.current.length > 0 && !playingRef.current) {
+          playNext()
+        }
       })
-      .catch(() => {
-        console.warn("[AudioPlayer] unlock failed — audio may not play")
-      })
-  }, [getAudio])
+    }
+  }, [getCtx, playNext])
 
-  return { playAudio, isPlaying, stopAudio, unlockAudio }
+  // Auto-unlock: register document-level listeners that fire on the
+  // user's very first interaction (click, tap, keypress, etc.).
+  // { capture: true } ensures we see events even if children stopPropagation.
+  // { once: true } auto-removes each listener after first fire.
+  useEffect(() => {
+    const handler = () => unlockAudio()
+    const events = ["click", "touchstart", "keydown", "pointerdown"]
+    for (const evt of events) {
+      document.addEventListener(evt, handler, { once: true, capture: true })
+    }
+    return () => {
+      for (const evt of events) {
+        document.removeEventListener(evt, handler, { capture: true })
+      }
+    }
+  }, [unlockAudio])
+
+  return { playAudio, isPlaying, stopAudio, unlockAudio, hasPendingAudio }
 }
