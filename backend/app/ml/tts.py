@@ -61,6 +61,7 @@ class TTSEngine:
             return
 
         try:
+            import onnxruntime as rt
             from kokoro_onnx import Kokoro
 
             if not os.path.exists(model_path):
@@ -77,7 +78,22 @@ class TTSEngine:
             logger.info("Loading Kokoro TTS model...")
             start = time.time()
 
-            self._kokoro = Kokoro(model_path, voices_path)
+            providers = self._get_providers()
+
+            sess_options = rt.SessionOptions()
+            sess_options.graph_optimization_level = (
+                rt.GraphOptimizationLevel.ORT_ENABLE_ALL
+            )
+            sess_options.intra_op_num_threads = 0  # auto-detect
+            sess_options.inter_op_num_threads = 0  # auto-detect
+
+            session = rt.InferenceSession(
+                model_path, sess_options=sess_options, providers=providers
+            )
+            actual_provider = session.get_providers()[0]
+            logger.info("Kokoro TTS using provider: %s", actual_provider)
+
+            self._kokoro = Kokoro.from_session(session, voices_path)
 
             self._loaded = True
             elapsed = time.time() - start
@@ -88,6 +104,41 @@ class TTSEngine:
                 "kokoro-onnx not installed. Install with: pip install kokoro-onnx"
             )
             raise
+
+    @staticmethod
+    def _get_providers() -> list[str | tuple[str, dict]]:
+        """Build ordered list of ONNX execution providers.
+
+        Priority: TensorRT > CUDA > CPU. Each GPU provider is configured
+        with explicit VRAM limits to prevent starving co-resident models.
+        """
+        import onnxruntime as rt
+
+        available = rt.get_available_providers()
+        preferred: list[str | tuple[str, dict]] = []
+
+        if "TensorrtExecutionProvider" in available:
+            preferred.append(
+                (
+                    "TensorrtExecutionProvider",
+                    {
+                        "trt_max_workspace_size": str(1 << 30),  # 1 GB
+                        "trt_fp16_enable": "true",
+                    },
+                )
+            )
+        if "CUDAExecutionProvider" in available:
+            preferred.append(
+                (
+                    "CUDAExecutionProvider",
+                    {
+                        "gpu_mem_limit": str(512 * 1024 * 1024),  # 512 MB
+                        "arena_extend_strategy": "kSameAsRequested",
+                    },
+                )
+            )
+        preferred.append("CPUExecutionProvider")
+        return preferred
 
     async def synthesize(
         self,

@@ -56,9 +56,40 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
         except Exception as e:
             logger.warning("TTS model not loaded: %s", e)
 
+    # Warn if ML models are being duplicated across multiple workers
+    import multiprocessing
+
+    if multiprocessing.parent_process() is not None:
+        logger.warning(
+            "ML models loading in child worker — use --workers 1 "
+            "or migrate to Triton for multi-worker deployments."
+        )
+
     await asyncio.gather(_load_stt(), _load_tts())
     _models_ready = True
     logger.info("ML models ready")
+
+    # GPU memory telemetry for capacity planning
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            allocated = torch.cuda.memory_allocated() / 1e6
+            reserved = torch.cuda.memory_reserved() / 1e6
+            logger.info(
+                "GPU memory — allocated: %.0f MB, reserved: %.0f MB",
+                allocated,
+                reserved,
+            )
+    except ImportError:
+        pass
+
+    try:
+        import onnxruntime as rt
+
+        logger.info("ONNX Runtime providers: %s", rt.get_available_providers())
+    except ImportError:
+        pass
 
     # Initialize Redis session backend if configured
     redis_backend = None

@@ -32,13 +32,11 @@ function MeetingRoom() {
     endMeeting,
     toggleMic,
     isMicOn,
-    unlockAudio,
+    hasPendingAudio,
   } = useMeeting(code)
 
   return (
-    // biome-ignore lint/a11y/useKeyWithClickEvents: audio unlock doesn't need keyboard
-    // biome-ignore lint/a11y/noStaticElementInteractions: unlocks audio on first click
-    <div className="flex h-dvh flex-col" onClick={unlockAudio}>
+    <div className="flex h-dvh flex-col">
       <MeetingHeader
         code={code}
         meetingState={meetingState}
@@ -54,7 +52,11 @@ function MeetingRoom() {
       {meetingState === "waiting" && <WaitingRoom code={code} />}
 
       {meetingState === "active" && role === "speaker" && (
-        <SpeakerView isMicOn={isMicOn} onToggleMic={toggleMic} />
+        <SpeakerView
+          isMicOn={isMicOn}
+          onToggleMic={toggleMic}
+          hasPendingAudio={hasPendingAudio}
+        />
       )}
 
       {meetingState === "active" && role === "reader" && (
