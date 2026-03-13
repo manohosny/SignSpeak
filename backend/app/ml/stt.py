@@ -193,6 +193,9 @@ class STTEngine:
         except Exception as e:
             logger.error("STT inference error: %s", e)
             return None
+        finally:
+            # Zero audio data to prevent leaking speech in crash dumps
+            audio.fill(0)
 
     def _transcribe_sync_file(self, audio: np.ndarray) -> str | None:
         """Fallback: transcription via temp file for older NeMo versions."""
@@ -426,6 +429,7 @@ class StreamingSTTBuffer:
                 return None
 
             audio = self._buffer.copy()
+            self._buffer.fill(0)  # Zero before replacing
             self._buffer = np.array([], dtype=np.float32)
             uid = self._current_utterance_id or ""
             # Rotate ID so subsequent audio gets a new one (Edge Case #1)
@@ -444,6 +448,7 @@ class StreamingSTTBuffer:
                 return None
 
             audio = self._buffer.copy()
+            self._buffer.fill(0)  # Zero before replacing
             self._buffer = np.array([], dtype=np.float32)
             uid = self._current_utterance_id or ""
             self._rotate_utterance_id()
@@ -473,10 +478,13 @@ class StreamingSTTBuffer:
                 return None
 
             audio = self._buffer.copy()
+            self._buffer.fill(0)  # Zero before replacing
             self._buffer = np.array([], dtype=np.float32)
 
             if self.mode == "fixed" and len(self._prev_overlap) > 0:
                 audio = np.concatenate([self._prev_overlap, audio])
+            if len(self._prev_overlap) > 0:
+                self._prev_overlap.fill(0)
             self._prev_overlap = np.array([], dtype=np.float32)
 
             uid = self._current_utterance_id
@@ -491,7 +499,11 @@ class StreamingSTTBuffer:
 
     def clear(self) -> None:
         with self._lock:
+            if len(self._buffer) > 0:
+                self._buffer.fill(0)
             self._buffer = np.array([], dtype=np.float32)
+            if len(self._prev_overlap) > 0:
+                self._prev_overlap.fill(0)
             self._prev_overlap = np.array([], dtype=np.float32)
             self._rotate_utterance_id()
 

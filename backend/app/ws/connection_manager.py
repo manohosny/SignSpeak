@@ -74,6 +74,11 @@ class ConnectionManager:
         role: str,
         websocket: WebSocket,
     ) -> Participant:
+        # Enforce 2-participant limit (speaker + reader)
+        existing = self._local.get(meeting_id, {})
+        if len(existing) >= 2 and user_id not in existing:
+            raise ValueError("Meeting is full")
+
         participant = Participant(
             user_id=user_id,
             display_name=display_name,

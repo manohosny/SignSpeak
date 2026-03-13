@@ -40,11 +40,19 @@ class MeetingHandler:
     # Minimum interval between partial transcript emissions (seconds)
     PARTIAL_INTERVAL = 3.0
 
+    # Audio rate limiting (token bucket)
+    MAX_AUDIO_CHUNKS_PER_SEC = 5
+    AUDIO_BURST_LIMIT = 8
+    MAX_AUDIO_CHUNK_BYTES = 32_000  # 1 second of 16kHz PCM16 = 32KB
+
     def __init__(self, meeting_id: uuid.UUID) -> None:
         self.meeting_id = meeting_id
         self.stt_buffer = StreamingSTTBuffer(mode=_get_stt_buffer_mode())
         self._active = True
         self._last_partial_time: float = 0.0
+        # Audio rate limiting state
+        self._audio_tokens: float = float(self.AUDIO_BURST_LIMIT)
+        self._audio_last_refill: float = time.monotonic()
 
     async def handle_audio_chunk(
         self,
@@ -57,6 +65,27 @@ class MeetingHandler:
         """
         if not self._active:
             return
+
+        # ── Rate limiting ──
+        if len(audio_bytes) > self.MAX_AUDIO_CHUNK_BYTES:
+            logger.warning(
+                "Oversized audio chunk (%d bytes) from %s — dropped",
+                len(audio_bytes), sender_id,
+            )
+            return
+
+        now = time.monotonic()
+        elapsed = now - self._audio_last_refill
+        self._audio_tokens = min(
+            self.AUDIO_BURST_LIMIT,
+            self._audio_tokens + elapsed * self.MAX_AUDIO_CHUNKS_PER_SEC,
+        )
+        self._audio_last_refill = now
+
+        if self._audio_tokens < 1.0:
+            return  # silently drop — client is sending too fast
+
+        self._audio_tokens -= 1.0
 
         audio_float32 = pcm16_bytes_to_float32(audio_bytes)
         self.stt_buffer.feed(audio_float32)

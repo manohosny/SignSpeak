@@ -25,6 +25,7 @@ Server -> Client:
 import asyncio
 import json
 import logging
+import time
 import uuid
 from datetime import datetime, timezone
 
@@ -38,6 +39,10 @@ from app.ws.connection_manager import manager
 from app.ws.handlers import MeetingHandler, get_or_create_handler, remove_handler
 
 logger = logging.getLogger(__name__)
+
+# Text message rate limiting (token bucket)
+_TEXT_MSG_RATE_LIMIT = 10  # max text messages per second
+_TEXT_MSG_BURST = 20
 
 router = APIRouter()
 
@@ -66,13 +71,21 @@ async def meeting_websocket(
         else []
     )
 
-    await manager.add_participant(
-        meeting_id=meeting_id,
-        user_id=user_id,
-        display_name=display_name,
-        role=role,
-        websocket=websocket,
-    )
+    try:
+        await manager.add_participant(
+            meeting_id=meeting_id,
+            user_id=user_id,
+            display_name=display_name,
+            role=role,
+            websocket=websocket,
+        )
+    except ValueError:
+        await websocket.send_json({
+            "type": "auth_error",
+            "message": "Meeting is full",
+        })
+        await websocket.close(code=4003, reason="Meeting full")
+        return
 
     handler = get_or_create_handler(meeting_id)
 
@@ -98,6 +111,9 @@ async def meeting_websocket(
 
     # ── Phase 3: Message Loop ──
     speaker_flushed = False
+    # Rate limiting for text messages
+    text_tokens: float = float(_TEXT_MSG_BURST)
+    text_last_refill: float = time.monotonic()
     try:
         while True:
             message = await websocket.receive()
@@ -109,9 +125,31 @@ async def meeting_websocket(
                 await _handle_binary(handler, user_id, role, message["bytes"])
 
             elif "text" in message and message["text"]:
+                # Rate limit non-critical text messages (not leave/end/control)
+                raw_text = message["text"]
+                try:
+                    msg_type = json.loads(raw_text).get("type")
+                except (json.JSONDecodeError, AttributeError):
+                    msg_type = None
+
+                if msg_type == "text_message":
+                    now = time.monotonic()
+                    elapsed = now - text_last_refill
+                    text_tokens = min(
+                        _TEXT_MSG_BURST,
+                        text_tokens + elapsed * _TEXT_MSG_RATE_LIMIT,
+                    )
+                    text_last_refill = now
+                    if text_tokens < 1.0:
+                        await websocket.send_json(
+                            {"type": "error", "message": "Rate limited"}
+                        )
+                        continue
+                    text_tokens -= 1.0
+
                 should_break, flushed = await _handle_text(
                     websocket, handler, user_id, role, meeting_id,
-                    message["text"],
+                    raw_text,
                 )
                 if flushed:
                     speaker_flushed = True

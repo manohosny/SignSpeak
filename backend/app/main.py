@@ -27,8 +27,29 @@ def models_ready() -> bool:
     return _models_ready
 
 
+_AUDIO_VAR_KEYWORDS = ("audio", "pcm", "wav", "buffer", "chunk")
+
+
+def _scrub_sentry_event(event: dict, hint: dict) -> dict:
+    """Strip audio data and large binary payloads from Sentry events."""
+    if "exception" in event:
+        for exc_info in event["exception"].get("values", []):
+            for frame in exc_info.get("stacktrace", {}).get("frames", []):
+                if frame.get("vars"):
+                    for key in list(frame["vars"]):
+                        if any(t in key.lower() for t in _AUDIO_VAR_KEYWORDS):
+                            frame["vars"][key] = "[scrubbed]"
+    return event
+
+
 if settings.SENTRY_DSN and settings.ENVIRONMENT != "local":
-    sentry_sdk.init(dsn=str(settings.SENTRY_DSN), enable_tracing=True)
+    sentry_sdk.init(
+        dsn=str(settings.SENTRY_DSN),
+        enable_tracing=True,
+        send_default_pii=False,
+        before_send=_scrub_sentry_event,
+        max_request_body_size="small",
+    )
 
 
 @asynccontextmanager
