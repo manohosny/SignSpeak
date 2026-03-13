@@ -5,6 +5,7 @@ broadcasts to the reader, and generates TTS audio for the speaker.
 """
 
 import logging
+import time
 import uuid
 from datetime import datetime, timezone
 
@@ -19,6 +20,16 @@ from app.ws.connection_manager import manager
 logger = logging.getLogger(__name__)
 
 
+def _get_stt_buffer_mode() -> str:
+    """Read buffer mode from settings (import deferred to avoid circular)."""
+    try:
+        from app.core.config import settings
+
+        return getattr(settings, "STT_BUFFER_MODE", "utterance")
+    except Exception:
+        return "utterance"
+
+
 class MeetingHandler:
     """Handles all message processing for one active meeting.
 
@@ -26,10 +37,14 @@ class MeetingHandler:
     One handler per meeting (not per connection).
     """
 
+    # Minimum interval between partial transcript emissions (seconds)
+    PARTIAL_INTERVAL = 3.0
+
     def __init__(self, meeting_id: uuid.UUID) -> None:
         self.meeting_id = meeting_id
-        self.stt_buffer = StreamingSTTBuffer()
+        self.stt_buffer = StreamingSTTBuffer(mode=_get_stt_buffer_mode())
         self._active = True
+        self._last_partial_time: float = 0.0
 
     async def handle_audio_chunk(
         self,
@@ -46,20 +61,83 @@ class MeetingHandler:
         audio_float32 = pcm16_bytes_to_float32(audio_bytes)
         self.stt_buffer.feed(audio_float32)
 
+        # Emit partial transcript if enough audio accumulated (utterance mode)
+        # Rate-limited to avoid excessive STT calls on every 250ms chunk
+        now = time.monotonic()
+        if (
+            self.stt_buffer.has_partial
+            and now - self._last_partial_time >= self.PARTIAL_INTERVAL
+        ):
+            result = self.stt_buffer.peek_utterance()
+            if result is not None:
+                audio, uid = result
+                partial_text = await stt_engine.transcribe(audio)
+                if partial_text:
+                    self._last_partial_time = now
+                    await self._broadcast_transcript(
+                        sender_id,
+                        partial_text,
+                        is_partial=True,
+                        utterance_id=uid,
+                    )
+
         if not self.stt_buffer.ready:
             return
 
-        # Returns None if chunk is silent
-        audio_chunk = self.stt_buffer.get_chunk()
-        if audio_chunk is None:
+        # Buffer is ready: fixed-mode chunk or utterance-mode safety cap
+        chunk_result = self.stt_buffer.get_chunk()
+        if chunk_result is None:
             return
 
-        transcript = await stt_engine.transcribe(audio_chunk)
+        if isinstance(chunk_result, tuple):
+            # Utterance mode — safety-cap flush: (audio, utterance_id)
+            audio_chunk, uid = chunk_result
+            transcript = await stt_engine.transcribe(audio_chunk)
+            if transcript:
+                logger.debug("STT (safety-cap): %s...", transcript[:80])
+                await self._broadcast_transcript(
+                    sender_id,
+                    transcript,
+                    is_partial=False,
+                    utterance_id=uid,
+                )
+        else:
+            # Fixed mode — original behavior
+            transcript = await stt_engine.transcribe(chunk_result)
+            if transcript:
+                logger.debug("STT: %s...", transcript[:80])
+                await self._broadcast_transcript(sender_id, transcript)
+
+    async def handle_utterance_end(
+        self,
+        sender_id: uuid.UUID,
+    ) -> None:
+        """Frontend signaled end of utterance (VAD silence transition).
+
+        Flush the STT buffer and transcribe the complete utterance.
+        Idempotent: returns early if buffer is too short (Edge Case #2).
+        """
+        if not self._active:
+            return
+
+        result = self.stt_buffer.flush_utterance()
+        if result is None:
+            # Buffer empty or too short (< 100ms) — nothing to transcribe
+            return
+
+        audio, uid = result
+        transcript = await stt_engine.transcribe(audio)
         if not transcript:
             return
 
-        logger.debug("STT: %s...", transcript[:80])
-        await self._broadcast_transcript(sender_id, transcript)
+        logger.debug("STT (utterance): %s...", transcript[:80])
+        await self._broadcast_transcript(
+            sender_id,
+            transcript,
+            is_partial=False,
+            utterance_id=uid,
+        )
+        # Note: _broadcast_transcript already persists final transcripts to DB
 
     async def handle_text_message(
         self,
@@ -143,15 +221,26 @@ class MeetingHandler:
         sender_id: uuid.UUID,
     ) -> None:
         """Flush remaining audio when Speaker stops mic or leaves."""
-        remaining_audio = self.stt_buffer.flush()
-        if remaining_audio is None:
+        remaining = self.stt_buffer.flush()
+        if remaining is None:
             return
 
-        transcript = await stt_engine.transcribe(remaining_audio)
-        if not transcript:
-            return
-
-        await self._broadcast_transcript(sender_id, transcript)
+        if isinstance(remaining, tuple):
+            # Utterance mode: (audio, utterance_id)
+            audio, uid = remaining
+            transcript = await stt_engine.transcribe(audio)
+            if transcript:
+                await self._broadcast_transcript(
+                    sender_id,
+                    transcript,
+                    is_partial=False,
+                    utterance_id=uid,
+                )
+        else:
+            # Fixed mode: np.ndarray
+            transcript = await stt_engine.transcribe(remaining)
+            if transcript:
+                await self._broadcast_transcript(sender_id, transcript)
 
     async def handle_user_joined(
         self, user_id: uuid.UUID, display_name: str, role: str
@@ -189,7 +278,11 @@ class MeetingHandler:
         self.stt_buffer.clear()
 
     async def _broadcast_transcript(
-        self, sender_id: uuid.UUID, transcript: str
+        self,
+        sender_id: uuid.UUID,
+        transcript: str,
+        is_partial: bool = False,
+        utterance_id: str | None = None,
     ) -> None:
         """Build transcript message, send to both participants, and persist."""
         session = manager.get_session(self.meeting_id)
@@ -197,13 +290,15 @@ class MeetingHandler:
             return
 
         timestamp = datetime.now(timezone.utc).isoformat()
-        transcript_msg = {
+        transcript_msg: dict = {
             "type": "transcript",
             "text": transcript,
-            "is_partial": False,
+            "is_partial": is_partial,
             "sender_id": str(sender_id),
             "timestamp": timestamp,
         }
+        if utterance_id:
+            transcript_msg["utterance_id"] = utterance_id
 
         reader = session.reader
         if reader:
@@ -219,11 +314,13 @@ class MeetingHandler:
             data=transcript_msg,
         )
 
-        await self._save_message(
-            sender_id=sender_id,
-            content=transcript,
-            msg_type=MessageType.speech_transcript,
-        )
+        # Only persist final transcripts, not partials
+        if not is_partial:
+            await self._save_message(
+                sender_id=sender_id,
+                content=transcript,
+                msg_type=MessageType.speech_transcript,
+            )
 
     async def _save_message(
         self,
