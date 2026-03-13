@@ -5,12 +5,14 @@ export type WsAuthMessage = { type: "auth"; token: string }
 export type WsTextMessage = { type: "text_message"; content: string }
 export type WsLeaveMessage = { type: "leave" }
 export type WsEndMeetingMessage = { type: "end_meeting" }
+export type WsControlMessage = { type: "control"; action: "utterance_end" }
 
 export type WsClientMessage =
   | WsAuthMessage
   | WsTextMessage
   | WsLeaveMessage
   | WsEndMeetingMessage
+  | WsControlMessage
 
 // Server → Client (JSON)
 export type WsAuthOk = {
@@ -24,6 +26,7 @@ export type WsTranscript = {
   type: "transcript"
   text: string
   is_partial: boolean
+  utterance_id?: string
   sender_id: string
   timestamp: string
 }

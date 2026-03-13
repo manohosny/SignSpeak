@@ -164,6 +164,8 @@ class TTSEngine:
         """Async generator yielding WAV chunks as they're synthesized.
 
         Use for lower latency — send each chunk immediately.
+        Runs Kokoro inference in a background thread via asyncio.Queue
+        bridge to avoid blocking the event loop.
 
         Usage:
             async for wav_bytes in engine.synthesize_streaming("Hello"):
@@ -176,18 +178,44 @@ class TTSEngine:
             yield self._silent_wav(duration=0.5)
             return
 
-        stream = self._kokoro.create_stream(
-            text, voice=voice, speed=speed, lang=lang
-        )
+        queue: asyncio.Queue[bytes | None] = asyncio.Queue()
+        loop = asyncio.get_running_loop()
 
-        chunks_yielded = 0
-        async for samples, sample_rate in stream:
-            wav_bytes = float32_to_wav_bytes(samples, sample_rate)
-            chunks_yielded += 1
-            yield wav_bytes
+        def _produce() -> None:
+            """Run in thread: collect Kokoro stream, push WAV bytes to queue."""
 
-        if chunks_yielded == 0:
-            yield self._silent_wav()
+            async def _inner() -> None:
+                chunks_produced = 0
+                try:
+                    stream = self._kokoro.create_stream(
+                        text, voice=voice, speed=speed, lang=lang
+                    )
+                    async for samples, sample_rate in stream:
+                        wav_bytes = float32_to_wav_bytes(samples, sample_rate)
+                        chunks_produced += 1
+                        loop.call_soon_threadsafe(queue.put_nowait, wav_bytes)
+                except Exception as e:
+                    logger.error("TTS streaming error: %s", e)
+                finally:
+                    if chunks_produced == 0:
+                        loop.call_soon_threadsafe(
+                            queue.put_nowait, self._silent_wav()
+                        )
+                    # Sentinel: signal end of stream
+                    loop.call_soon_threadsafe(queue.put_nowait, None)
+
+            asyncio.run(_inner())
+
+        thread_future = loop.run_in_executor(None, _produce)
+
+        while True:
+            item = await queue.get()
+            if item is None:
+                break
+            yield item
+
+        # Ensure thread completed cleanly (propagates exceptions)
+        await thread_future
 
     def _silent_wav(
         self, duration: float = 0.1, sample_rate: int = 24000
