@@ -37,12 +37,16 @@ const TranscriptBubble = memo(function TranscriptBubble({
       </div>
       <div
         className={cn(
-          "rounded-2xl px-4 py-2 text-sm",
+          "rounded-2xl px-4 py-2 text-sm transition-opacity duration-300",
           isOwn ? "bg-primary text-primary-foreground" : "bg-muted",
           entry.type === "transcript" && "italic",
+          entry.isPartial && "opacity-50",
         )}
       >
         {entry.content}
+        {entry.isPartial && (
+          <span className="ml-1 inline-block h-2 w-2 animate-pulse rounded-full bg-current" />
+        )}
       </div>
     </div>
   )

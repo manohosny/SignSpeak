@@ -32,6 +32,7 @@ function MeetingRoom() {
     endMeeting,
     toggleMic,
     isMicOn,
+    isSpeaking,
     hasPendingAudio,
   } = useMeeting(code)
 
@@ -54,6 +55,7 @@ function MeetingRoom() {
       {meetingState === "active" && role === "speaker" && (
         <SpeakerView
           isMicOn={isMicOn}
+          isSpeaking={isSpeaking}
           onToggleMic={toggleMic}
           hasPendingAudio={hasPendingAudio}
         />

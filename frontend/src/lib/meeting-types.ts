@@ -77,4 +77,5 @@ export type TranscriptEntry = {
   senderId: string
   senderRole: "speaker" | "reader"
   timestamp: string
+  isPartial?: boolean
 }

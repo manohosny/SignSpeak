@@ -111,6 +111,7 @@ export function useMeeting(meetingCode: string) {
                 ...updated[idx],
                 content: msg.text,
                 timestamp: msg.timestamp,
+                isPartial: msg.is_partial,
               }
               return updated
             }
@@ -124,6 +125,7 @@ export function useMeeting(meetingCode: string) {
               senderId: msg.sender_id,
               senderRole: "speaker",
               timestamp: msg.timestamp,
+              isPartial: msg.is_partial,
             },
           ]
         })

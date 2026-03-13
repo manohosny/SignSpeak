@@ -2,6 +2,7 @@ import { MicButton } from "./MicButton"
 
 interface SpeakerViewProps {
   isMicOn: boolean
+  isSpeaking?: boolean
   onToggleMic: () => void
   micError?: string | null
   hasPendingAudio?: boolean
@@ -9,6 +10,7 @@ interface SpeakerViewProps {
 
 export function SpeakerView({
   isMicOn,
+  isSpeaking,
   onToggleMic,
   micError,
   hasPendingAudio,
@@ -28,7 +30,7 @@ export function SpeakerView({
           Tap anywhere to enable audio
         </div>
       )}
-      <MicButton isOn={isMicOn} onToggle={onToggleMic} error={micError} />
+      <MicButton isOn={isMicOn} isSpeaking={isSpeaking} onToggle={onToggleMic} error={micError} />
     </div>
   )
 }
