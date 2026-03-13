@@ -19,7 +19,14 @@ OpenAPI.TOKEN = async () => {
 }
 
 const handleApiError = (error: Error) => {
-  if (error instanceof ApiError && [401, 403].includes(error.status)) {
+  if (error instanceof ApiError) {
+    if ([401, 403].includes(error.status)) {
+      localStorage.removeItem("access_token")
+      window.location.href = "/login"
+    }
+  } else if (localStorage.getItem("access_token")) {
+    // Network error (backend unreachable) while we think we're logged in.
+    // Redirect to login so the user sees a clean state.
     localStorage.removeItem("access_token")
     window.location.href = "/login"
   }

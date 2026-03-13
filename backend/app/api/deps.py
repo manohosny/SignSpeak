@@ -12,9 +12,7 @@ from app.core import security
 from app.core.config import settings
 from app.core.db import async_session_factory
 from app.errors import (
-    raise_inactive_user,
     raise_insufficient_privileges,
-    raise_user_not_found,
 )
 from app.models import TokenPayload, User
 
@@ -45,9 +43,15 @@ async def get_current_user(session: SessionDep, token: TokenDep) -> User:
         )
     user = await session.get(User, token_data.sub)
     if not user:
-        raise_user_not_found()
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+        )
     if not user.is_active:
-        raise_inactive_user()
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Inactive user",
+        )
     return user
 
 
