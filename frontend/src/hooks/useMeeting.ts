@@ -156,7 +156,8 @@ export function useMeeting(meetingCode: string) {
   }, [])
 
   // ── Audio player (Speaker receives TTS WAV) ──
-  const { playAudio, stopAudio, unlockAudio } = useAudioPlayer()
+  const { playAudio, stopAudio, unlockAudio, hasPendingAudio } =
+    useAudioPlayer()
 
   const handleBinaryMessage = useCallback(
     (data: ArrayBuffer) => {
@@ -273,5 +274,6 @@ export function useMeeting(meetingCode: string) {
     isMicOn,
     isSpeaking,
     unlockAudio,
+    hasPendingAudio,
   }
 }
