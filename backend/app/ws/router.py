@@ -272,7 +272,7 @@ async def _authenticate(
                 websocket.receive_text(),
                 timeout=_AUTH_TIMEOUT_SECONDS,
             )
-        except TimeoutError:
+        except (TimeoutError, asyncio.TimeoutError):
             await websocket.send_json({
                 "type": "auth_error",
                 "message": "Auth timeout — send auth message within 10s",
