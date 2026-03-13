@@ -3,7 +3,8 @@
 Adapted from the tested streaming_transcribe.py script.
 
 Key implementation details:
-1. NeMo transcribe() expects FILE PATHS -> write temp .wav before inference
+1. NeMo transcribe() accepts audio=[(numpy_array, sample_rate)] tuples
+   or file paths — we prefer direct arrays to skip disk I/O
 2. MPS (Apple Silicon) IS supported -> model.to(torch.device("mps"))
 3. 2s chunks with 0.5s overlap for transcript continuity
 4. RMS-based silence detection skips quiet chunks
@@ -157,7 +158,44 @@ class STTEngine:
         return await asyncio.to_thread(self._transcribe_sync, audio)
 
     def _transcribe_sync(self, audio: np.ndarray) -> str | None:
-        """Sync transcription via temp file (NeMo expects file paths)."""
+        """Sync transcription — passes NumPy arrays directly to NeMo.
+
+        Falls back to temp-file path if direct array input fails.
+        """
+        import torch
+
+        try:
+            with _StderrSuppressor():
+                with torch.inference_mode():
+                    outputs = self._model.transcribe(
+                        audio=[audio],
+                        batch_size=1,
+                        verbose=False,
+                    )
+
+            if not outputs:
+                return None
+
+            text = outputs[0]
+            if hasattr(text, "text"):
+                text = text.text
+
+            text = text.strip()
+            return text if text else None
+
+        except (TypeError, ValueError):
+            # NeMo version doesn't support audio=[array] — fall back
+            logger.warning(
+                "NeMo transcribe() does not accept array input; "
+                "falling back to temp file"
+            )
+            return self._transcribe_sync_file(audio)
+        except Exception as e:
+            logger.error("STT inference error: %s", e)
+            return None
+
+    def _transcribe_sync_file(self, audio: np.ndarray) -> str | None:
+        """Fallback: transcription via temp file for older NeMo versions."""
         import soundfile as sf
 
         tmp_path = None
@@ -169,7 +207,7 @@ class STTEngine:
             import torch
 
             with _StderrSuppressor():
-                with torch.no_grad():
+                with torch.inference_mode():
                     outputs = self._model.transcribe(
                         [tmp_path], batch_size=1, verbose=False
                     )
@@ -185,7 +223,7 @@ class STTEngine:
             return text if text else None
 
         except Exception as e:
-            logger.error("STT inference error: %s", e)
+            logger.error("STT inference error (file fallback): %s", e)
             return None
         finally:
             if tmp_path and os.path.exists(tmp_path):
