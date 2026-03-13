@@ -6,3 +6,27 @@ app.egg-info
 .coverage
 htmlcov
 .venv
+
+# Version control
+.git
+.gitignore
+
+# Tests
+tests/
+pytest.ini
+
+# IDE & editor
+.vscode
+.idea
+*.swp
+
+# Documentation
+*.md
+
+# ML model files (use volumes, not baked-in)
+*.onnx
+*.bin
+
+# Environment
+.env
+.env.*

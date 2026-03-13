@@ -63,6 +63,23 @@ services:
       - EMAILS_FROM_EMAIL=${EMAILS_FROM_EMAIL}
       - SENTRY_DSN=${SENTRY_DSN}
       - REDIS_URL=redis://redis:6379/0
+      - HF_HOME=/root/.cache/huggingface
+      - TORCH_HOME=/root/.cache/torch
+      - KOKORO_MODEL_PATH=/app/backend/models/kokoro-v1.0.onnx
+      - KOKORO_VOICES_PATH=/app/backend/models/voices-v1.0.bin
+
+    volumes:
+      - model-cache-hf:/root/.cache/huggingface
+      - model-cache-torch:/root/.cache/torch
+      - kokoro-models:/app/backend/models
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
 
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/utils/health-check/"]
@@ -120,6 +137,11 @@ services:
 
       # Enable redirection for HTTP and HTTPS
       - traefik.http.routers.${STACK_NAME?Variable not set}-frontend-http.middlewares=https-redirect
+
+volumes:
+  model-cache-hf:
+  model-cache-torch:
+  kokoro-models:
 
 networks:
   traefik-public:
