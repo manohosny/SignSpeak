@@ -49,6 +49,8 @@ export type WsUserLeft = {
 }
 export type WsMeetingEnded = { type: "meeting_ended" }
 export type WsError = { type: "error"; message: string }
+export type WsTtsStart = { type: "tts_start" }
+export type WsTtsEnd = { type: "tts_end" }
 
 export type WsServerMessage =
   | WsAuthOk
@@ -59,6 +61,8 @@ export type WsServerMessage =
   | WsUserLeft
   | WsMeetingEnded
   | WsError
+  | WsTtsStart
+  | WsTtsEnd
 
 // ── UI state ──
 

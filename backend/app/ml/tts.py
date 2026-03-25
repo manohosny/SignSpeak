@@ -35,6 +35,24 @@ DEFAULT_VOICE = "af_heart"
 DEFAULT_SPEED = 1.05
 DEFAULT_LANG = "en-us"
 
+# ── Sentence splitting (pySBD) ────────────────────────────────
+_segmenter = None  # lazy-initialized, warmed in load_model()
+
+
+def _get_segmenter():  # type: ignore[no-untyped-def]
+    global _segmenter
+    if _segmenter is None:
+        import pysbd
+
+        _segmenter = pysbd.Segmenter(language="en", clean=False)
+    return _segmenter
+
+
+def split_sentences(text: str) -> list[str]:
+    """Split text into sentences using pySBD for abbreviation-safe boundaries."""
+    sentences = _get_segmenter().segment(text.strip())
+    return [s.strip() for s in sentences if s.strip()]
+
 
 class TTSEngine:
     """Wraps Kokoro ONNX for the WebSocket pipeline.
@@ -98,6 +116,9 @@ class TTSEngine:
             self._loaded = True
             elapsed = time.time() - start
             logger.info("Kokoro TTS loaded in %.2fs", elapsed)
+
+            # Warm the sentence segmenter so first request isn't slower
+            _get_segmenter()
 
         except ImportError:
             logger.error(
@@ -267,6 +288,29 @@ class TTSEngine:
 
         # Ensure thread completed cleanly (propagates exceptions)
         await thread_future
+
+    async def synthesize_sentences_streaming(
+        self,
+        text: str,
+        voice: str = DEFAULT_VOICE,
+        speed: float = DEFAULT_SPEED,
+        lang: str = DEFAULT_LANG,
+    ) -> AsyncGenerator[bytes, None]:
+        """Stream WAV chunks sentence-by-sentence for minimal first-audio latency.
+
+        Splits text into sentences via pySBD, then streams each sentence
+        through Kokoro independently. The speaker hears the first sentence
+        while subsequent sentences are still being synthesized.
+        """
+        sentences = split_sentences(text)
+        if not sentences:
+            return
+
+        for sentence in sentences:
+            async for wav_chunk in self.synthesize_streaming(
+                sentence, voice=voice, speed=speed, lang=lang
+            ):
+                yield wav_chunk
 
     def _silent_wav(
         self, duration: float = 0.1, sample_rate: int = 24000

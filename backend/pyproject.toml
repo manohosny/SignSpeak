@@ -27,6 +27,7 @@ dependencies = [
 ml = [
     "nemo-toolkit[asr]>=1.20.0",
     "kokoro-onnx>=0.4.0",
+    "pysbd>=0.4.0",
     "soundfile>=0.12.0",
     "torch>=2.0.0",
     "onnxruntime>=1.16.0,<1.21.0",

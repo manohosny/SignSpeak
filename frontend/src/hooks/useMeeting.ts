@@ -154,6 +154,14 @@ export function useMeeting(meetingCode: string) {
         // Non-fatal: show error but don't change state
         setError(msg.message)
         break
+
+      case "tts_start":
+        // Future: set speaking indicator state
+        break
+
+      case "tts_end":
+        // Future: clear speaking indicator state
+        break
     }
   }, [])
 

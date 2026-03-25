@@ -213,23 +213,40 @@ class MeetingHandler:
             data=text_msg,
         )
 
-        # Synthesize and send audio to Speaker
+        # Synthesize and stream audio to Speaker chunk-by-chunk
         if not speaker:
             logger.warning("TTS skipped — no speaker connected")
         elif not tts_engine.is_loaded:
             logger.warning("TTS skipped — engine not loaded")
         else:
             try:
-                logger.info("TTS: synthesizing %d chars...", len(content))
-                wav_bytes = await tts_engine.synthesize(content)
-                logger.info("TTS: sending %d bytes of audio to speaker", len(wav_bytes))
-                await manager.send_bytes_to_user(
+                logger.info("TTS: streaming %d chars...", len(content))
+
+                await manager.send_json_to_user(
                     meeting_id=self.meeting_id,
                     user_id=speaker.user_id,
-                    data=wav_bytes,
+                    data={"type": "tts_start"},
                 )
+
+                chunk_count = 0
+                async for wav_chunk in tts_engine.synthesize_sentences_streaming(content):
+                    await manager.send_bytes_to_user(
+                        meeting_id=self.meeting_id,
+                        user_id=speaker.user_id,
+                        data=wav_chunk,
+                    )
+                    chunk_count += 1
+
+                logger.info("TTS: streamed %d chunks to speaker", chunk_count)
+
+                await manager.send_json_to_user(
+                    meeting_id=self.meeting_id,
+                    user_id=speaker.user_id,
+                    data={"type": "tts_end"},
+                )
+
             except Exception as e:
-                logger.error("TTS failed: %s", e)
+                logger.error("TTS streaming failed: %s", e)
                 await manager.send_json_to_user(
                     meeting_id=self.meeting_id,
                     user_id=speaker.user_id,
