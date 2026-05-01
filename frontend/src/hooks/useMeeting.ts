@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import type { MeetingPublic } from "@/client"
 import { MeetingsService } from "@/client"
 import type {
+  GlossEntry,
   MeetingState,
   TranscriptEntry,
   WsServerMessage,
@@ -17,6 +18,7 @@ export function useMeeting(meetingCode: string) {
   const [role, setRole] = useState<"speaker" | "reader" | null>(null)
   const [userId, setUserId] = useState<string | null>(null)
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([])
+  const [glosses, setGlosses] = useState<GlossEntry[]>([])
   const [partnerJoined, setPartnerJoined] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [isMicOn, setIsMicOn] = useState(false)
@@ -162,6 +164,38 @@ export function useMeeting(meetingCode: string) {
       case "tts_end":
         // Future: clear speaking indicator state
         break
+
+      case "gloss":
+        setGlosses((prev) => [
+          ...prev,
+          {
+            id: msg.utterance_id || `g-${Date.now()}-${Math.random()}`,
+            type: "gloss",
+            text: msg.text,
+            utterance_id: msg.utterance_id,
+            timestamp: msg.timestamp,
+            isOwn: false,
+          },
+        ])
+        break
+
+      case "gloss_message":
+        setGlosses((prev) => [
+          ...prev,
+          {
+            id: `gm-${Date.now()}-${Math.random()}`,
+            type: "gloss_message",
+            text: msg.content,
+            timestamp: msg.timestamp,
+            isOwn: true,
+          },
+        ])
+        break
+
+      case "gloss_error":
+        // Non-fatal: show an error notification
+        setError(msg.message)
+        break
     }
   }, [])
 
@@ -245,6 +279,16 @@ export function useMeeting(meetingCode: string) {
     [sendJson],
   )
 
+  const sendGlossMessage = useCallback(
+    (content: string) => {
+      const trimmed = content.trim().toUpperCase()
+      if (trimmed) {
+        sendJson({ type: "gloss_message", content: trimmed })
+      }
+    },
+    [sendJson],
+  )
+
   const endMeeting = useCallback(() => {
     sendJson({ type: "end_meeting" })
     setMeetingState("ended")
@@ -278,9 +322,11 @@ export function useMeeting(meetingCode: string) {
     role,
     userId,
     transcript,
+    glosses,
     partnerJoined,
     error,
     sendTextMessage,
+    sendGlossMessage,
     endMeeting,
     toggleMic,
     isMicOn,

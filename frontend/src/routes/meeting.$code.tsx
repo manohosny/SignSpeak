@@ -26,9 +26,9 @@ function MeetingRoom() {
   const {
     meetingState,
     role,
-    transcript,
+    glosses,
     error,
-    sendTextMessage,
+    sendGlossMessage,
     endMeeting,
     toggleMic,
     isMicOn,
@@ -62,7 +62,7 @@ function MeetingRoom() {
       )}
 
       {meetingState === "active" && role === "reader" && (
-        <ReaderView transcript={transcript} onSendMessage={sendTextMessage} />
+        <ReaderView glosses={glosses} onSendGloss={sendGlossMessage} />
       )}
 
       {meetingState === "ended" && (
