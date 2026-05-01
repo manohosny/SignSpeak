@@ -97,11 +97,11 @@ class TranslationEngine:
             model_name, extra_special_tokens={}
         )
 
-        # Register asl_GL language code if not already present
+        # Register asl_GL language code if not already present.
+        # id_to_lang_code only exists on MBart50Tokenizer (slow), not the fast variant.
         if "asl_GL" not in self._tokenizer.lang_code_to_id:
             asl_id = self._tokenizer.convert_tokens_to_ids("asl_GL")
             self._tokenizer.lang_code_to_id["asl_GL"] = asl_id
-            self._tokenizer.id_to_lang_code[asl_id] = "asl_GL"
 
         # Load model
         self._model = MBartForConditionalGeneration.from_pretrained(model_name)
