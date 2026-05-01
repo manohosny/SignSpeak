@@ -221,6 +221,12 @@ async def _handle_text(
             await handler.handle_text_message(sender_id=user_id, content=content)
         return False, False
 
+    if msg_type == "gloss_message":
+        content = data.get("content", "").strip()
+        if content:
+            await handler.handle_gloss_message(sender_id=user_id, content=content)
+        return False, False
+
     if msg_type == "leave":
         flushed = False
         if role == "speaker":

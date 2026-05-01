@@ -13,6 +13,7 @@ from app import crud_meeting
 from app.core.db import async_session_factory
 from app.ml.audio_utils import pcm16_bytes_to_float32
 from app.ml.stt import StreamingSTTBuffer, stt_engine
+from app.ml.translation import translation_engine
 from app.ml.tts import tts_engine
 from app.models import MessageType
 from app.ws.connection_manager import manager
@@ -262,6 +263,127 @@ class MeetingHandler:
             msg_type=MessageType.text_message,
         )
 
+    async def handle_gloss_message(
+        self,
+        sender_id: uuid.UUID,
+        content: str,
+    ) -> None:
+        """Reader sent ASL gloss input.
+
+        Translate glosses to English -> TTS -> stream audio to Speaker.
+        Reader sees only gloss UX; translated English stays invisible to reader.
+        """
+        if not self._active:
+            return
+
+        content = content.strip().upper()  # Normalize to uppercase
+        if not content:
+            return
+
+        session = manager.get_session(self.meeting_id)
+        if not session:
+            return
+
+        speaker = session.speaker
+        timestamp = datetime.now(timezone.utc).isoformat()
+
+        # Echo gloss back to reader for confirmation
+        gloss_echo = {
+            "type": "gloss_message",
+            "content": content,
+            "sender_id": str(sender_id),
+            "timestamp": timestamp,
+        }
+        await manager.send_json_to_user(
+            meeting_id=self.meeting_id,
+            user_id=sender_id,
+            data=gloss_echo,
+        )
+
+        # Translate gloss -> English
+        if not translation_engine.is_loaded:
+            logger.warning("Translation skipped — engine not loaded")
+            await manager.send_json_to_user(
+                meeting_id=self.meeting_id,
+                user_id=sender_id,
+                data={"type": "error", "message": "Translation engine not available"},
+            )
+            await self._save_message(
+                sender_id=sender_id,
+                content=content,
+                msg_type=MessageType.gloss_input,
+            )
+            return
+
+        try:
+            english = await translation_engine.gloss_to_english(content)
+        except Exception as e:
+            logger.error("Gloss translation error: %s", e)
+            english = None
+
+        if not english:
+            await manager.send_json_to_user(
+                meeting_id=self.meeting_id,
+                user_id=sender_id,
+                data={"type": "error", "message": "Could not translate gloss"},
+            )
+            await self._save_message(
+                sender_id=sender_id,
+                content=content,
+                msg_type=MessageType.gloss_input,
+            )
+            return
+
+        # Persist both: raw gloss input and translated English
+        await self._save_message(
+            sender_id=sender_id,
+            content=content,
+            msg_type=MessageType.gloss_input,
+        )
+        await self._save_message(
+            sender_id=sender_id,
+            content=english,
+            msg_type=MessageType.text_message,
+        )
+
+        # TTS: stream English to speaker (reuse existing TTS path)
+        if not speaker:
+            logger.warning("TTS skipped — no speaker connected")
+            return
+
+        if not tts_engine.is_loaded:
+            logger.warning("TTS skipped — engine not loaded")
+            return
+
+        try:
+            logger.info("TTS (from gloss): streaming %d chars...", len(english))
+            await manager.send_json_to_user(
+                meeting_id=self.meeting_id,
+                user_id=speaker.user_id,
+                data={"type": "tts_start"},
+            )
+            chunk_count = 0
+            async for wav_chunk in tts_engine.synthesize_sentences_streaming(english):
+                await manager.send_bytes_to_user(
+                    meeting_id=self.meeting_id,
+                    user_id=speaker.user_id,
+                    data=wav_chunk,
+                )
+                chunk_count += 1
+            logger.info("TTS (from gloss): streamed %d chunks to speaker", chunk_count)
+            await manager.send_json_to_user(
+                meeting_id=self.meeting_id,
+                user_id=speaker.user_id,
+                data={"type": "tts_end"},
+            )
+        except Exception as e:
+            logger.error("TTS streaming (from gloss) failed: %s", e)
+            await manager.send_json_to_user(
+                meeting_id=self.meeting_id,
+                user_id=speaker.user_id,
+                data={"type": "error", "message": "Audio synthesis failed"},
+            )
+
     async def handle_speaker_stopped(
         self,
         sender_id: uuid.UUID,
@@ -346,19 +468,53 @@ class MeetingHandler:
         if utterance_id:
             transcript_msg["utterance_id"] = utterance_id
 
-        reader = session.reader
-        if reader:
-            await manager.send_json_to_user(
-                meeting_id=self.meeting_id,
-                user_id=reader.user_id,
-                data=transcript_msg,
-            )
-
+        # Speaker always gets the original transcript
         await manager.send_json_to_user(
             meeting_id=self.meeting_id,
             user_id=sender_id,
             data=transcript_msg,
         )
+
+        # Flow 1: send gloss to reader for final transcripts only
+        reader = session.reader
+        if reader:
+            if is_partial:
+                pass  # reader never sees partials
+            else:
+                gloss = None
+                if translation_engine.is_loaded:
+                    try:
+                        gloss = await translation_engine.english_to_gloss(transcript)
+                    except Exception as e:
+                        logger.error("Translation error in broadcast: %s", e)
+
+                if gloss:
+                    await manager.send_json_to_user(
+                        meeting_id=self.meeting_id,
+                        user_id=reader.user_id,
+                        data={
+                            "type": "gloss",
+                            "text": gloss,
+                            "utterance_id": utterance_id or "",
+                            "sender_id": str(sender_id),
+                            "timestamp": timestamp,
+                        },
+                    )
+                    await self._save_message(
+                        sender_id=sender_id,
+                        content=gloss,
+                        msg_type=MessageType.gloss_translation,
+                    )
+                else:
+                    await manager.send_json_to_user(
+                        meeting_id=self.meeting_id,
+                        user_id=reader.user_id,
+                        data={
+                            "type": "gloss_error",
+                            "utterance_id": utterance_id or "",
+                            "message": "Translation unavailable",
+                        },
+                    )
 
         # Only persist final transcripts, not partials
         if not is_partial:
