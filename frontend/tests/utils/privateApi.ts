@@ -15,7 +15,6 @@ export const createUser = async ({
     requestBody: {
       email,
       password,
-      is_verified: true,
       full_name: "Test User",
     },
   })
