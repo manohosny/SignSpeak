@@ -7,10 +7,16 @@ module-level MOCK_MODE constant is True.
 import asyncio
 import os
 
-# Set before any app imports so the module-level constant is evaluated correctly.
+# Set env var first (works when module hasn't been imported yet).
 os.environ["TRANSLATION_MOCK_MODE"] = "true"
 
 import pytest  # noqa: E402
+
+import app.ml.translation as _translation_mod  # noqa: E402
+
+# Patch module-level MOCK_MODE in case the module was already imported by
+# another part of the test suite (e.g. ws tests importing handlers.py).
+_translation_mod.MOCK_MODE = True
 
 from app.ml.translation import (  # noqa: E402
     TranslationEngine,
