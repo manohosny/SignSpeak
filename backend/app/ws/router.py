@@ -8,14 +8,17 @@ Protocol:
 
 Client -> Server:
 - Binary frame: PCM16 audio (16kHz mono) from Speaker
-- { "type": "text_message", "content": "..." } from Reader
+- { "type": "gloss_message", "content": "..." } from Reader (ASL gloss notation)
 - { "type": "leave" }
 - { "type": "end_meeting" }
 
 Server -> Client:
-- { "type": "transcript", ... }
-- { "type": "text_message", ... }
+- { "type": "transcript", ... }           Speaker sees own English transcript
+- { "type": "gloss", "text": "..." }      Reader sees ASL gloss translation
+- { "type": "gloss_message", ... }        Echo of reader's gloss input
+- { "type": "gloss_error", ... }          Translation failure notification
 - Binary frame: TTS WAV audio
+- { "type": "tts_start" / "tts_end" }
 - { "type": "user_joined", ... }
 - { "type": "user_left", ... }
 - { "type": "meeting_ended" }
@@ -214,12 +217,6 @@ async def _handle_text(
         return False, False
 
     msg_type = data.get("type")
-
-    if msg_type == "text_message":
-        content = data.get("content", "").strip()
-        if content:
-            await handler.handle_text_message(sender_id=user_id, content=content)
-        return False, False
 
     if msg_type == "gloss_message":
         content = data.get("content", "").strip()
