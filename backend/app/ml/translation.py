@@ -90,8 +90,12 @@ class TranslationEngine:
         logger.info("Loading %s on %s...", model_name, self._device)
         start = time.time()
 
-        # Load tokenizer
-        self._tokenizer = MBart50TokenizerFast.from_pretrained(model_name)
+        # Load tokenizer — extra_special_tokens={} overrides the list stored in
+        # tokenizer_config.json (saved with older transformers) which newer
+        # transformers incorrectly expects to be a dict and calls .keys() on it.
+        self._tokenizer = MBart50TokenizerFast.from_pretrained(
+            model_name, extra_special_tokens={}
+        )
 
         # Register asl_GL language code if not already present
         if "asl_GL" not in self._tokenizer.lang_code_to_id:
