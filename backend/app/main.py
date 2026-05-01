@@ -106,6 +106,15 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
             "or migrate to Triton for multi-worker deployments."
         )
 
+    # Pre-import transformers on the main thread before spawning worker threads.
+    # Both NeMo (STT) and the translation engine import from transformers; without
+    # this, parallel asyncio.to_thread calls can race on module initialization and
+    # produce "cannot import name X from transformers" errors.
+    try:
+        import transformers  # noqa: F401
+    except ImportError:
+        pass
+
     await asyncio.gather(_load_stt(), _load_tts(), _load_translation())
     _models_ready = True
     logger.info("ML models ready")
