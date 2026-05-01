@@ -87,6 +87,14 @@ class Settings(BaseSettings):
     # ── ML / Audio Pipeline ──
     STT_BUFFER_MODE: str = "utterance"  # "utterance" | "fixed"
 
+    # ── Translation (mBART-50 ASL) ──
+    TRANSLATION_MODEL_NAME: str = "manohonsy/asl-mbart-50-lora"
+    TRANSLATION_DEVICE: str = "auto"        # auto | cuda | mps | cpu
+    TRANSLATION_NUM_BEAMS: int = 4          # 1 = greedy (CPU default), 4 = recommended
+    TRANSLATION_DTYPE: str = "auto"         # auto | fp16 | fp32
+    TRANSLATION_MAX_LENGTH: int = 128
+    TRANSLATION_ENABLED: bool = True        # kill switch
+
     # ── Redis (optional, for multi-server WebSocket scaling) ──
     REDIS_URL: str | None = None
 

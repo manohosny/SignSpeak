@@ -39,6 +39,8 @@ class ParticipantRole(str, enum.Enum):
 class MessageType(str, enum.Enum):
     speech_transcript = "speech_transcript"
     text_message = "text_message"
+    gloss_translation = "gloss_translation"
+    gloss_input = "gloss_input"
 
 
 # ============================================================

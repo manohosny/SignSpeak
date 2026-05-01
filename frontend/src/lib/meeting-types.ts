@@ -6,6 +6,7 @@ export type WsTextMessage = { type: "text_message"; content: string }
 export type WsLeaveMessage = { type: "leave" }
 export type WsEndMeetingMessage = { type: "end_meeting" }
 export type WsControlMessage = { type: "control"; action: "utterance_end" }
+export type WsGlossMessage = { type: "gloss_message"; content: string }
 
 export type WsClientMessage =
   | WsAuthMessage
@@ -13,6 +14,7 @@ export type WsClientMessage =
   | WsLeaveMessage
   | WsEndMeetingMessage
   | WsControlMessage
+  | WsGlossMessage
 
 // Server → Client (JSON)
 export type WsAuthOk = {
@@ -51,6 +53,24 @@ export type WsMeetingEnded = { type: "meeting_ended" }
 export type WsError = { type: "error"; message: string }
 export type WsTtsStart = { type: "tts_start" }
 export type WsTtsEnd = { type: "tts_end" }
+export type WsGloss = {
+  type: "gloss"
+  text: string
+  utterance_id?: string
+  sender_id: string
+  timestamp: string
+}
+export type WsGlossMsg = {
+  type: "gloss_message"
+  content: string
+  sender_id: string
+  timestamp: string
+}
+export type WsGlossError = {
+  type: "gloss_error"
+  utterance_id?: string
+  message: string
+}
 
 export type WsServerMessage =
   | WsAuthOk
@@ -63,6 +83,9 @@ export type WsServerMessage =
   | WsError
   | WsTtsStart
   | WsTtsEnd
+  | WsGloss
+  | WsGlossMsg
+  | WsGlossError
 
 // ── UI state ──
 
@@ -82,4 +105,13 @@ export type TranscriptEntry = {
   senderRole: "speaker" | "reader"
   timestamp: string
   isPartial?: boolean
+}
+
+export type GlossEntry = {
+  id: string
+  type: "gloss" | "gloss_message"
+  text: string
+  utterance_id?: string
+  timestamp: string
+  isOwn: boolean
 }

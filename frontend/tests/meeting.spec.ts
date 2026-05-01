@@ -44,7 +44,10 @@ test.describe("Meeting page", () => {
   test("fake media device provides working audio stream", async ({ page }) => {
     await page.goto("/")
 
-    const result = await page.evaluate(async () => {
+    const result = await page.evaluate(async (): Promise<
+      | { success: true; tracks: { kind: string; readyState: string }[] }
+      | { success: false; error: string }
+    > => {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
           audio: { sampleRate: 16000, channelCount: 1 },
@@ -65,10 +68,9 @@ test.describe("Meeting page", () => {
     })
 
     expect(result.success).toBe(true)
-    if (result.success) {
-      expect(result.tracks).toHaveLength(1)
-      expect(result.tracks[0].kind).toBe("audio")
-      expect(result.tracks[0].readyState).toBe("live")
-    }
+    if (!result.success) throw new Error("getUserMedia failed")
+    expect(result.tracks).toHaveLength(1)
+    expect(result.tracks[0].kind).toBe("audio")
+    expect(result.tracks[0].readyState).toBe("live")
   })
 })

@@ -1,22 +1,18 @@
-import type { TranscriptEntry } from "@/lib/meeting-types"
-import { TextInput } from "./TextInput"
-import { TranscriptPanel } from "./TranscriptPanel"
+import type { GlossEntry } from "@/lib/meeting-types"
+import { GlossFeed } from "./GlossFeed"
+import { GlossInput } from "./GlossInput"
 
 interface ReaderViewProps {
-  transcript: TranscriptEntry[]
-  onSendMessage: (message: string) => void
+  glosses: GlossEntry[]
+  onSendGloss: (gloss: string) => void
   disabled?: boolean
 }
 
-export function ReaderView({
-  transcript,
-  onSendMessage,
-  disabled,
-}: ReaderViewProps) {
+export function ReaderView({ glosses, onSendGloss, disabled }: ReaderViewProps) {
   return (
     <div className="flex flex-1 flex-col">
-      <TranscriptPanel entries={transcript} currentRole="reader" />
-      <TextInput onSend={onSendMessage} disabled={disabled} />
+      <GlossFeed entries={glosses} />
+      <GlossInput onSend={onSendGloss} disabled={disabled} />
     </div>
   )
 }
