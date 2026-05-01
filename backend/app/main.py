@@ -77,26 +77,6 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
         except Exception as e:
             logger.warning("TTS model not loaded: %s", e)
 
-    async def _load_translation() -> None:
-        try:
-            from app.core.config import settings
-
-            if not settings.TRANSLATION_ENABLED:
-                logger.info("Translation model disabled via TRANSLATION_ENABLED=false")
-                return
-            from app.ml.translation import translation_engine
-
-            await asyncio.to_thread(
-                translation_engine.load_model,
-                model_name=settings.TRANSLATION_MODEL_NAME,
-                device=settings.TRANSLATION_DEVICE,
-                num_beams=settings.TRANSLATION_NUM_BEAMS,
-                max_length=settings.TRANSLATION_MAX_LENGTH,
-                dtype=settings.TRANSLATION_DTYPE,
-            )
-        except Exception as e:
-            logger.warning("Translation model not loaded: %s", e)
-
     # Warn if ML models are being duplicated across multiple workers
     import multiprocessing
 
@@ -106,7 +86,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
             "or migrate to Triton for multi-worker deployments."
         )
 
-    await asyncio.gather(_load_stt(), _load_tts(), _load_translation())
+    await asyncio.gather(_load_stt(), _load_tts())
     _models_ready = True
     logger.info("ML models ready")
 
@@ -165,12 +145,6 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
         from app.ml.tts import tts_engine
 
         tts_engine.unload()
-    except Exception:
-        pass
-    try:
-        from app.ml.translation import translation_engine
-
-        translation_engine.unload()
     except Exception:
         pass
 
