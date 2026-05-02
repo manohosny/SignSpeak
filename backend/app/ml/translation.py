@@ -119,12 +119,14 @@ class TranslationEngine:
 
         self._model.eval()
 
-        # Auto-downgrade num_beams on CPU to keep latency acceptable
+        # Auto-downgrade num_beams to greedy on CPU and MPS — beam search is
+        # too slow on both for real-time use (CPU: obvious; MPS: limited op support).
         self._num_beams = num_beams
-        if self._device == "cpu" and num_beams > 1:
+        if self._device in ("cpu", "mps") and num_beams > 1:
             logger.warning(
-                "CPU device detected with num_beams=%d; downgrading to greedy "
+                "%s device detected with num_beams=%d; downgrading to greedy "
                 "(num_beams=1) for acceptable latency",
+                self._device,
                 num_beams,
             )
             self._num_beams = 1
