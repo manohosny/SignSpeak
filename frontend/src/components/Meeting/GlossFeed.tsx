@@ -1,10 +1,11 @@
-import { memo, useEffect, useRef } from "react"
+import { memo, type ReactNode, useEffect, useRef } from "react"
 
 import type { GlossEntry } from "@/lib/meeting-types"
 import { cn } from "@/lib/utils"
 
 interface GlossFeedProps {
   entries: GlossEntry[]
+  emptyMessage?: ReactNode
 }
 
 function formatTime(timestamp: string) {
@@ -14,7 +15,11 @@ function formatTime(timestamp: string) {
   })
 }
 
-const GlossBubble = memo(function GlossBubble({ entry }: { entry: GlossEntry }) {
+const GlossBubble = memo(function GlossBubble({
+  entry,
+}: {
+  entry: GlossEntry
+}) {
   return (
     <div
       className={cn(
@@ -38,17 +43,17 @@ const GlossBubble = memo(function GlossBubble({ entry }: { entry: GlossEntry }) 
   )
 })
 
-export function GlossFeed({ entries }: GlossFeedProps) {
+export function GlossFeed({ entries, emptyMessage }: GlossFeedProps) {
   const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" })
-  }, [entries.length])
+  }, [])
 
   if (entries.length === 0) {
     return (
       <div className="flex flex-1 items-center justify-center text-muted-foreground">
-        Waiting for the speaker to sign...
+        {emptyMessage ?? "Waiting for the speaker to sign..."}
       </div>
     )
   }
