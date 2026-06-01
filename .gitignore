@@ -6,3 +6,12 @@ node_modules/
 /blob-report/
 /playwright/.cache/
 .worktrees/
+
+# npm lockfiles — this repo uses Bun (bun.lock). Do not commit npm artifacts.
+package-lock.json
+**/package-lock.json
+
+# Environment files — never commit. Use .env.example as the template.
+.env
+.env.*
+!.env.example

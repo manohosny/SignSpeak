@@ -340,15 +340,42 @@ class Message(SQLModel):
     message: str
 
 
-# JSON payload containing access token
+# JSON payload containing access + refresh tokens.
+# `refresh_token` is optional for backward compatibility with any
+# integrations that still parse the legacy access-only response.
 class Token(SQLModel):
     access_token: str
+    refresh_token: str | None = None
     token_type: str = "bearer"
 
 
-# Contents of JWT token
+# Request body for the refresh-token endpoint.
+class RefreshTokenRequest(SQLModel):
+    refresh_token: str
+
+
+# Contents of JWT token. `jti` and `exp` are populated only for tokens
+# that carry them (refresh tokens always do; access tokens after the
+# rotation feature do too). The `type` claim distinguishes access vs
+# refresh — see app.core.security.decode_token.
 class TokenPayload(SQLModel):
     sub: str | None = None
+    jti: str | None = None
+    exp: int | None = None
+    type: str | None = None
+
+
+# Server-side blacklist of revoked refresh-token JTIs.
+# Populated when a refresh token is rotated — the OLD token's JTI is
+# inserted here, so a replay (e.g., after a theft) is rejected.
+# `expires_at` mirrors the JWT's exp so a periodic prune query
+# (`DELETE WHERE expires_at < NOW()`) can drop rows that no longer
+# need blacklisting.
+class RevokedRefreshToken(SQLModel, table=True):
+    __tablename__ = "revoked_refresh_token"
+    jti: str = Field(primary_key=True, max_length=64)
+    revoked_at: datetime = Field(default_factory=get_datetime_utc)
+    expires_at: datetime
 
 
 class NewPassword(SQLModel):

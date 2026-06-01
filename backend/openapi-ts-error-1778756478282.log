@@ -1,0 +1,7 @@
+[2026-05-14T11:01:18.282Z] Error: missing input - which OpenAPI specification should we use to generate your output?
+Stack:
+Error: missing input - which OpenAPI specification should we use to generate your output?
+    at Pm (/Users/manohosny/SignSpeak/node_modules/@hey-api/openapi-ts/dist/index.cjs:42:76248)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async d$ (/Users/manohosny/SignSpeak/node_modules/@hey-api/openapi-ts/dist/index.cjs:1338:4485)
+    at async start (/Users/manohosny/SignSpeak/node_modules/@hey-api/openapi-ts/bin/index.cjs:131:21)

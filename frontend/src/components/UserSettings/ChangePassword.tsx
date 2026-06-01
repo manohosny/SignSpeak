@@ -59,6 +59,7 @@ const ChangePassword = () => {
                   <PasswordInput
                     data-testid="current-password-input"
                     placeholder="••••••••"
+                    autoComplete="current-password"
                     aria-invalid={fieldState.invalid}
                     {...field}
                   />
@@ -78,6 +79,7 @@ const ChangePassword = () => {
                   <PasswordInput
                     data-testid="new-password-input"
                     placeholder="••••••••"
+                    autoComplete="new-password"
                     aria-invalid={fieldState.invalid}
                     {...field}
                   />
@@ -97,6 +99,7 @@ const ChangePassword = () => {
                   <PasswordInput
                     data-testid="confirm-password-input"
                     placeholder="••••••••"
+                    autoComplete="new-password"
                     aria-invalid={fieldState.invalid}
                     {...field}
                   />

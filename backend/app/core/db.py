@@ -1,3 +1,5 @@
+import logging
+
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -6,11 +8,27 @@ from app import crud
 from app.core.config import settings
 from app.models import User, UserCreate
 
+logger = logging.getLogger(__name__)
+
 connect_args = {}
 if settings.DATABASE_URL:
     connect_args["sslmode"] = "require"
 
-engine = create_async_engine(str(settings.SQLALCHEMY_DATABASE_URI), connect_args=connect_args)
+engine = create_async_engine(
+    str(settings.SQLALCHEMY_DATABASE_URI),
+    connect_args=connect_args,
+    pool_size=settings.DB_POOL_SIZE,
+    max_overflow=settings.DB_MAX_OVERFLOW,
+    pool_recycle=settings.DB_POOL_RECYCLE_SECONDS,
+    pool_pre_ping=settings.DB_POOL_PRE_PING,
+)
+logger.info(
+    "DB pool configured: pool_size=%s max_overflow=%s recycle=%ss pre_ping=%s",
+    settings.DB_POOL_SIZE,
+    settings.DB_MAX_OVERFLOW,
+    settings.DB_POOL_RECYCLE_SECONDS,
+    settings.DB_POOL_PRE_PING,
+)
 
 # Session factory for non-DI contexts (WebSocket handlers, background tasks).
 # Unlike get_db() in deps.py (request-scoped), this can create sessions anywhere.

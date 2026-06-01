@@ -11,21 +11,17 @@ import re
 import uuid
 from unittest.mock import patch
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 from starlette.websockets import WebSocketDisconnect
 
-import pytest
-
 from app.models import (
-    Meeting,
     MeetingParticipant,
-    MeetingStatus,
     ParticipantRole,
     User,
 )
 from tests.ws.conftest import make_pcm16_audio, make_token
-
 
 # ============================================================
 # AUTH FLOW
@@ -142,6 +138,7 @@ class TestAudioStreaming:
         speaker_user: User,
         reader_user: User,
     ):
+        """Binary audio from a reader is ignored — only the speaker streams audio."""
         mid = str(meeting_id)
         with ws_client.websocket_connect(f"/ws/{mid}") as ws_speaker:
             ws_speaker.send_json(
@@ -163,17 +160,18 @@ class TestAudioStreaming:
                     {"type": "control", "action": "utterance_end"}
                 )
 
-                # Send a sentinel text message; if audio produced a transcript
-                # it would arrive on ws_speaker before the text message
+                # Sentinel: a gloss_message drives translate→TTS to the speaker.
+                # The first JSON the speaker then receives is `tts_start`; a
+                # `transcript` instead would mean the reader's audio was
+                # (wrongly) transcribed and routed.
                 ws_reader.send_json(
-                    {"type": "text_message", "content": "sentinel"}
+                    {"type": "gloss_message", "content": "IX TEST"}
                 )
 
-                # The first JSON the speaker receives must be the text, not a
-                # transcript — proving the reader's audio was discarded
                 msg = ws_speaker.receive_json()
-                assert msg["type"] == "text_message", (
-                    f"Expected text_message sentinel but got {msg['type']}"
+                assert msg["type"] == "tts_start", (
+                    f"Expected tts_start sentinel but got {msg['type']} — "
+                    "reader audio was not ignored"
                 )
 
 
@@ -183,13 +181,14 @@ class TestAudioStreaming:
 
 
 class TestTextMessaging:
-    def test_reader_sends_text_speaker_receives(
+    def test_reader_sends_gloss_speaker_receives_tts(
         self,
         ws_client: TestClient,
         meeting_id: uuid.UUID,
         speaker_user: User,
         reader_user: User,
     ):
+        """Reader's gloss is echoed back to the reader and drives TTS to the speaker."""
         mid = str(meeting_id)
         with ws_client.websocket_connect(f"/ws/{mid}") as ws_speaker:
             ws_speaker.send_json(
@@ -212,24 +211,22 @@ class TestTextMessaging:
                 assert joined_speaker["type"] == "user_joined"
                 assert joined_speaker["role"] == "reader"
 
-                # Reader sends text message
+                # Reader sends ASL gloss
                 ws_reader.send_json(
-                    {"type": "text_message", "content": "Hello speaker!"}
+                    {"type": "gloss_message", "content": "IX WANT BAKE CAKE"}
                 )
 
-                # Speaker receives the text message
-                text_msg = ws_speaker.receive_json()
-                assert text_msg["type"] == "text_message"
-                assert text_msg["content"] == "Hello speaker!"
+                # Reader receives the gloss echo (confirmation)
+                echo = ws_reader.receive_json()
+                assert echo["type"] == "gloss_message"
+                assert echo["content"] == "IX WANT BAKE CAKE"
+                assert echo["sender_id"] == str(reader_user.id)
 
-                # Speaker receives TTS audio bytes (mock: short silent WAV)
+                # Speaker receives the TTS stream: tts_start, WAV bytes, tts_end
+                assert ws_speaker.receive_json()["type"] == "tts_start"
                 tts_bytes = ws_speaker.receive_bytes()
                 assert len(tts_bytes) > 0
-
-                # Reader receives echo confirmation
-                echo = ws_reader.receive_json()
-                assert echo["type"] == "text_message"
-                assert echo["content"] == "Hello speaker!"
+                assert ws_speaker.receive_json()["type"] == "tts_end"
 
     def test_empty_text_ignored(
         self,
@@ -387,18 +384,15 @@ class TestRateLimiting:
             oversized = b"\x00" * 40_000
             ws.send_bytes(oversized)
 
-            # Flush — should produce no transcript since the chunk was dropped
-            ws.send_json({"type": "control", "action": "utterance_end"})
+            # The oversized chunk is dropped before it reaches the STT buffer,
+            # and the sender is told so — rather than left guessing why no
+            # transcript appeared. The error frame is itself proof of the drop.
+            err = ws.receive_json()
+            assert err["type"] == "error"
+            assert "too large" in err["message"].lower()
 
-            # Send an unknown type as a sentinel — if the oversized chunk
-            # produced a transcript, it would arrive before the error reply
-            ws.send_json({"type": "sentinel_probe"})
-            msg = ws.receive_json()
-            assert msg["type"] == "error", (
-                f"Expected sentinel error but got {msg['type']} — "
-                "oversized chunk was not dropped"
-            )
-            assert "Unknown message type: sentinel_probe" in msg["message"]
+            # Connection stays usable; a clean leave closes it without a hang.
+            ws.send_json({"type": "leave"})
 
     def test_audio_rate_limit_drops_excess(
         self,
@@ -475,6 +469,87 @@ class TestRateLimiting:
                 assert rate_limited, (
                     "Expected rate limit error but didn't receive one"
                 )
+
+    def test_gloss_rate_limit(
+        self,
+        ws_client: TestClient,
+        meeting_id: uuid.UUID,
+        reader_user: User,
+    ):
+        """Rate-limit gloss messages using a very tight bucket.
+
+        gloss_message frames drive translation + TTS, so they have their own
+        (tighter) token bucket. Patches the burst to 2 with zero refill so the
+        3rd gloss is guaranteed to hit the limit regardless of timing.
+        """
+        mid = str(meeting_id)
+        with (
+            patch("app.ws.router._GLOSS_MSG_BURST", 2),
+            patch("app.ws.router._GLOSS_MSG_RATE_LIMIT", 0),
+        ):
+            with ws_client.websocket_connect(f"/ws/{mid}") as ws_reader:
+                ws_reader.send_json(
+                    {"type": "auth", "token": make_token(reader_user.id)}
+                )
+                assert ws_reader.receive_json()["type"] == "auth_ok"
+
+                # Send 5 gloss messages — first 2 pass, remaining 3 are limited
+                for i in range(5):
+                    ws_reader.send_json(
+                        {"type": "gloss_message", "content": f"IX TEST {i}"}
+                    )
+
+                rate_limited = False
+                for _ in range(10):
+                    msg = ws_reader.receive_json()
+                    if msg.get("type") == "error" and "Rate limited" in msg.get(
+                        "message", ""
+                    ):
+                        rate_limited = True
+                        break
+
+                assert rate_limited, (
+                    "Expected gloss rate limit error but didn't receive one"
+                )
+
+
+# ============================================================
+# REGISTRATION ROLLBACK
+# ============================================================
+
+
+class TestRegistrationRollback:
+    def test_handler_removed_when_registration_fails(
+        self,
+        ws_client: TestClient,
+        meeting_id: uuid.UUID,
+        speaker_user: User,
+    ):
+        """If registration fails after the handler is created, the handler
+        must be cleaned up — otherwise it leaks for the life of the process.
+        """
+        from app.ws.handlers import MeetingHandler, _handlers
+
+        # Force a failure in the post-handler-creation registration phase,
+        # after auth_ok has already been sent.
+        with patch.object(
+            MeetingHandler,
+            "handle_user_joined",
+            side_effect=RuntimeError("simulated registration failure"),
+        ):
+            with ws_client.websocket_connect(f"/ws/{meeting_id}") as ws:
+                ws.send_json(
+                    {"type": "auth", "token": make_token(speaker_user.id)}
+                )
+                assert ws.receive_json()["type"] == "auth_ok"
+
+                # Registration fails after auth_ok — server closes with 1011.
+                with pytest.raises(WebSocketDisconnect) as exc_info:
+                    ws.receive_json()
+                assert exc_info.value.code == 1011
+
+        # The handler created during the failed registration must not leak.
+        assert meeting_id not in _handlers
 
 
 # ============================================================

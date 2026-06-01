@@ -3,7 +3,7 @@
 import type { CancelablePromise } from './core/CancelablePromise';
 import { OpenAPI } from './core/OpenAPI';
 import { request as __request } from './core/request';
-import type { LoginLoginAccessTokenData, LoginLoginAccessTokenResponse, LoginTestTokenResponse, LoginRecoverPasswordData, LoginRecoverPasswordResponse, LoginResetPasswordData, LoginResetPasswordResponse, LoginRecoverPasswordHtmlContentData, LoginRecoverPasswordHtmlContentResponse, MeetingsCreateMeetingResponse, MeetingsGetMyMeetingsData, MeetingsGetMyMeetingsResponse, MeetingsGetMeetingData, MeetingsGetMeetingResponse, MeetingsJoinMeetingData, MeetingsJoinMeetingResponse, MeetingsEndMeetingData, MeetingsEndMeetingResponse, MeetingsGetMessagesData, MeetingsGetMessagesResponse, PrivateCreateUserData, PrivateCreateUserResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserData, UsersCreateUserResponse, UsersReadUserMeResponse, UsersDeleteUserMeResponse, UsersUpdateUserMeData, UsersUpdateUserMeResponse, UsersUpdatePasswordMeData, UsersUpdatePasswordMeResponse, UsersRegisterUserData, UsersRegisterUserResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserData, UsersUpdateUserResponse, UsersDeleteUserData, UsersDeleteUserResponse, UtilsTestEmailData, UtilsTestEmailResponse, UtilsHealthCheckResponse } from './types.gen';
+import type { LoginLoginAccessTokenData, LoginLoginAccessTokenResponse, LoginRefreshTokenData, LoginRefreshTokenResponse, LoginTestTokenResponse, LoginLogoutData, LoginLogoutResponse, LoginRecoverPasswordData, LoginRecoverPasswordResponse, LoginResetPasswordData, LoginResetPasswordResponse, LoginRecoverPasswordHtmlContentData, LoginRecoverPasswordHtmlContentResponse, MeetingsCreateMeetingResponse, MeetingsGetMyMeetingsData, MeetingsGetMyMeetingsResponse, MeetingsGetMeetingData, MeetingsGetMeetingResponse, MeetingsJoinMeetingData, MeetingsJoinMeetingResponse, MeetingsEndMeetingData, MeetingsEndMeetingResponse, MeetingsGetMessagesData, MeetingsGetMessagesResponse, PrivateCreateUserData, PrivateCreateUserResponse, UsersReadUsersData, UsersReadUsersResponse, UsersCreateUserData, UsersCreateUserResponse, UsersReadUserMeResponse, UsersDeleteUserMeResponse, UsersUpdateUserMeData, UsersUpdateUserMeResponse, UsersUpdatePasswordMeData, UsersUpdatePasswordMeResponse, UsersRegisterUserData, UsersRegisterUserResponse, UsersReadUserByIdData, UsersReadUserByIdResponse, UsersUpdateUserData, UsersUpdateUserResponse, UsersDeleteUserData, UsersDeleteUserResponse, UtilsTestEmailData, UtilsTestEmailResponse, UtilsHealthCheckResponse, UtilsHealthzLiveResponse, UtilsHealthzReadyResponse } from './types.gen';
 
 export class LoginService {
     /**
@@ -26,6 +26,26 @@ export class LoginService {
     }
     
     /**
+     * Refresh Token
+     * Exchange a valid refresh token for a fresh access + refresh pair.
+     * @param data The data for the request.
+     * @param data.requestBody
+     * @returns Token Successful Response
+     * @throws ApiError
+     */
+    public static refreshToken(data: LoginRefreshTokenData = {}): CancelablePromise<LoginRefreshTokenResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/login/refresh',
+            body: data.requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
      * Test Token
      * @returns UserPublic Successful Response
      * @throws ApiError
@@ -33,7 +53,31 @@ export class LoginService {
     public static testToken(): CancelablePromise<LoginTestTokenResponse> {
         return __request(OpenAPI, {
             method: 'POST',
-            url: '/api/v1/login/test-token'
+            url: '/api/v1/login/test-token',
+            errors: {
+                422: 'Validation Error'
+            }
+        });
+    }
+    
+    /**
+     * Logout
+     * Revoke a refresh token. Always returns 200 to avoid token-validity
+     * oracles; if the supplied token is invalid the call is a no-op.
+     * @param data The data for the request.
+     * @param data.requestBody
+     * @returns Message Successful Response
+     * @throws ApiError
+     */
+    public static logout(data: LoginLogoutData = {}): CancelablePromise<LoginLogoutResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/logout',
+            body: data.requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: 'Validation Error'
+            }
         });
     }
     
@@ -108,7 +152,10 @@ export class MeetingsService {
     public static createMeeting(): CancelablePromise<MeetingsCreateMeetingResponse> {
         return __request(OpenAPI, {
             method: 'POST',
-            url: '/api/v1/meetings/'
+            url: '/api/v1/meetings/',
+            errors: {
+                422: 'Validation Error'
+            }
         });
     }
     
@@ -301,7 +348,10 @@ export class UsersService {
     public static readUserMe(): CancelablePromise<UsersReadUserMeResponse> {
         return __request(OpenAPI, {
             method: 'GET',
-            url: '/api/v1/users/me'
+            url: '/api/v1/users/me',
+            errors: {
+                422: 'Validation Error'
+            }
         });
     }
     
@@ -313,7 +363,10 @@ export class UsersService {
     public static deleteUserMe(): CancelablePromise<UsersDeleteUserMeResponse> {
         return __request(OpenAPI, {
             method: 'DELETE',
-            url: '/api/v1/users/me'
+            url: '/api/v1/users/me',
+            errors: {
+                422: 'Validation Error'
+            }
         });
     }
     
@@ -461,13 +514,43 @@ export class UtilsService {
     
     /**
      * Health Check
-     * @returns boolean Successful Response
+     * Combined liveness + readiness probe (kept for backward compatibility).
+     *
+     * Prefer the split `/healthz/live` and `/healthz/ready` endpoints in new
+     * orchestrator configs.
+     * @returns unknown Successful Response
      * @throws ApiError
      */
     public static healthCheck(): CancelablePromise<UtilsHealthCheckResponse> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/v1/utils/health-check/'
+        });
+    }
+    
+    /**
+     * Healthz Live
+     * Liveness probe — process is up and the event loop is responsive.
+     * @returns unknown Successful Response
+     * @throws ApiError
+     */
+    public static healthzLive(): CancelablePromise<UtilsHealthzLiveResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/utils/healthz/live'
+        });
+    }
+    
+    /**
+     * Healthz Ready
+     * Readiness probe — ML models are loaded and the app can serve traffic.
+     * @returns unknown Successful Response
+     * @throws ApiError
+     */
+    public static healthzReady(): CancelablePromise<UtilsHealthzReadyResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/utils/healthz/ready'
         });
     }
 }

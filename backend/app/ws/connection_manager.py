@@ -42,6 +42,10 @@ class ConnectionManager:
         self._server_id = str(uuid.uuid4())
         # Local WebSocket references: meeting_id -> {user_id -> Participant}
         self._local: dict[uuid.UUID, dict[uuid.UUID, Participant]] = {}
+        # Per-meeting subscribe tasks: forward backend pub/sub messages to
+        # local WebSockets. Started on first local participant, cancelled
+        # when the last leaves. Memory backend's subscribe is a no-op.
+        self._subscribe_tasks: dict[uuid.UUID, asyncio.Task] = {}
 
     def set_backend(self, backend: object) -> None:
         """Switch to a different session backend (e.g., Redis)."""
@@ -99,6 +103,15 @@ class ConnectionManager:
             server_id=self._server_id,
         )
 
+        # Spawn a subscribe task for this meeting if not already running.
+        # The task forwards messages published by other replicas (or no-ops
+        # under the memory backend) to local WebSockets.
+        if meeting_id not in self._subscribe_tasks:
+            self._subscribe_tasks[meeting_id] = asyncio.create_task(
+                self._consume_remote_messages(meeting_id),
+                name=f"ws-sub-{meeting_id}",
+            )
+
         logger.info(
             "%s (%s) joined meeting %s", display_name, role, meeting_id
         )
@@ -116,6 +129,10 @@ class ConnectionManager:
             if not local:
                 del self._local[meeting_id]
                 logger.info("Destroyed empty local session: %s", meeting_id)
+                # Last local participant left — stop forwarding remote messages.
+                task = self._subscribe_tasks.pop(meeting_id, None)
+                if task and not task.done():
+                    task.cancel()
 
         await self._backend.unregister_participant(meeting_id, user_id)
 
@@ -196,6 +213,67 @@ class ConnectionManager:
             await ws.send_json(data)
         except Exception as e:
             logger.debug("Broadcast send failed: %s", e)
+
+    async def _consume_remote_messages(self, meeting_id: uuid.UUID) -> None:
+        """Forward messages from the backend's subscribe stream to local WSs.
+
+        The Redis backend already filters self-originated messages by
+        server_id, so anything that reaches us here came from a *different*
+        replica and should be delivered to our local participants.
+        """
+        try:
+            async for envelope in self._backend.subscribe(meeting_id):
+                msg = envelope.get("message") if isinstance(envelope, dict) else None
+                if not isinstance(msg, dict):
+                    continue
+                exclude_raw = (
+                    envelope.get("exclude_user")
+                    if isinstance(envelope, dict)
+                    else None
+                )
+                local = self._local.get(meeting_id)
+                if not local:
+                    continue
+                tasks = []
+                for uid, participant in local.items():
+                    if exclude_raw and str(uid) == exclude_raw:
+                        continue
+                    tasks.append(self._safe_send_json(participant.websocket, msg))
+                if tasks:
+                    await asyncio.gather(*tasks)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.warning(
+                "Remote subscribe loop for meeting %s exited: %s",
+                meeting_id,
+                e,
+            )
+
+    async def broadcast_all(self, data: dict) -> None:
+        """Send a JSON frame to every active local WebSocket.
+
+        Used at graceful shutdown so clients can transition to a
+        "reconnecting" state instead of seeing a generic disconnect.
+        """
+        tasks = []
+        for participants in self._local.values():
+            for p in participants.values():
+                tasks.append(self._safe_send_json(p.websocket, data))
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def close_all(self) -> None:
+        """Cancel any active subscribe tasks. Used at shutdown."""
+        for task in list(self._subscribe_tasks.values()):
+            if not task.done():
+                task.cancel()
+        # Let them settle so finally-blocks run.
+        if self._subscribe_tasks:
+            await asyncio.gather(
+                *self._subscribe_tasks.values(), return_exceptions=True
+            )
+        self._subscribe_tasks.clear()
 
     @property
     def active_session_count(self) -> int:

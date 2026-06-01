@@ -1,0 +1,63 @@
+name: Frontend Unit Tests
+
+# Note: This workflow only runs trusted commands (lint, typecheck, vitest).
+# It does NOT consume any untrusted GitHub event payload (issue titles, PR
+# bodies, commit messages, branch names) inside `run:` blocks, so it is not
+# exposed to the workflow-injection class of vulnerabilities.
+
+on:
+  push:
+    branches:
+    - master
+  pull_request:
+    types:
+    - opened
+    - synchronize
+  workflow_dispatch:
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.filter.outputs.changed }}
+    steps:
+    - uses: actions/checkout@v6
+    - uses: dorny/paths-filter@v3
+      id: filter
+      with:
+        filters: |
+          changed:
+            - frontend/**
+            - .github/workflows/test-frontend.yml
+
+  test-unit:
+    needs:
+      - changes
+    if: ${{ needs.changes.outputs.changed == 'true' }}
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+    - uses: actions/checkout@v6
+    - uses: oven-sh/setup-bun@v2
+    - run: bun ci
+    - name: Lint (biome check, no auto-fix)
+      run: bunx biome check --no-errors-on-unmatched --files-ignore-unknown=true ./src
+    - name: Type check (production tsconfig)
+      run: bunx tsc -p tsconfig.build.json --noEmit
+    - name: Unit tests (vitest)
+      run: bunx vitest run
+
+  alls-green-frontend:
+    if: always()
+    needs:
+      - test-unit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Decide whether the needed jobs succeeded or failed
+        uses: re-actors/alls-green@release/v1
+        with:
+          jobs: ${{ toJSON(needs) }}
+          allowed-skips: test-unit

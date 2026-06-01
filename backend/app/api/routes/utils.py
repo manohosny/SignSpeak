@@ -26,6 +26,30 @@ async def test_email(email_to: EmailStr) -> Message:
 
 @router.get("/health-check/")
 async def health_check() -> JSONResponse:
+    """Combined liveness + readiness probe (kept for backward compatibility).
+
+    Prefer the split `/healthz/live` and `/healthz/ready` endpoints in new
+    orchestrator configs.
+    """
+    from app.main import models_ready
+
+    if not models_ready():
+        return JSONResponse(
+            status_code=503,
+            content={"status": "loading", "detail": "ML models not ready"},
+        )
+    return JSONResponse(content={"status": "ok"})
+
+
+@router.get("/healthz/live")
+async def healthz_live() -> JSONResponse:
+    """Liveness probe — process is up and the event loop is responsive."""
+    return JSONResponse(content={"status": "ok"})
+
+
+@router.get("/healthz/ready")
+async def healthz_ready() -> JSONResponse:
+    """Readiness probe — ML models are loaded and the app can serve traffic."""
     from app.main import models_ready
 
     if not models_ready():

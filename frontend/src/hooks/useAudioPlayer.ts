@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 
+import { logDebug, logError } from "@/lib/logger"
+
 /**
  * Plays WAV audio received from TTS via the Web Audio API.
  *
@@ -51,7 +53,7 @@ export function useAudioPlayer() {
       source.onended = () => playNext()
       source.start()
     } catch (err) {
-      console.error("[AudioPlayer] decode/play error:", err)
+      logError("[AudioPlayer] decode/play error", { err })
       playNext()
     }
   }, [getCtx])
@@ -59,12 +61,10 @@ export function useAudioPlayer() {
   const playAudio = useCallback(
     (wavData: ArrayBuffer) => {
       const ctx = getCtx()
-      console.log(
-        "[AudioPlayer] received audio:",
-        wavData.byteLength,
-        "bytes, ctx state:",
-        ctx.state,
-      )
+      logDebug("[AudioPlayer] received audio", {
+        bytes: wavData.byteLength,
+        ctxState: ctx.state,
+      })
       queueRef.current.push(wavData)
 
       if (ctx.state !== "running") {
@@ -91,7 +91,7 @@ export function useAudioPlayer() {
     const ctx = getCtx()
     if (ctx.state === "suspended") {
       ctx.resume().then(() => {
-        console.log("[AudioPlayer] AudioContext resumed")
+        logDebug("[AudioPlayer] AudioContext resumed")
         setHasPendingAudio(false)
         // Drain any audio that was queued while suspended
         if (queueRef.current.length > 0 && !playingRef.current) {

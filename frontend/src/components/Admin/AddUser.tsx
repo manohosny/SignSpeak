@@ -1,6 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod"
 import { Plus } from "lucide-react"
-import { useForm } from "react-hook-form"
+import { type FieldValues, type UseFormReturn, useForm } from "react-hook-form"
 import type { z } from "zod"
 
 import { type UserCreate, UsersService } from "@/client"
@@ -72,7 +72,9 @@ const AddUser = () => {
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)}>
             <div className="grid gap-4 py-4">
-              <UserFormFields form={form} />
+              <UserFormFields
+                form={form as unknown as UseFormReturn<FieldValues>}
+              />
             </div>
 
             <DialogFooter>

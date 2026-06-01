@@ -25,6 +25,7 @@ from app.models import (
     UserUpdateMe,
 )
 from app.services.email_service import generate_new_account_email, send_email
+from app.services.auth_service import generate_password_reset_token
 
 
 async def _ensure_email_available(
@@ -46,8 +47,15 @@ async def create_user(*, session: AsyncSession, user_in: UserCreate) -> User:
     await _ensure_email_available(session=session, email=user_in.email)
     user = await crud.create_user(session=session, user_create=user_in)
     if settings.emails_enabled and user_in.email:
+        # Send a password-reset-style setup link rather than the plaintext
+        # password the admin chose. The user picks their own credential on
+        # first visit; the original is never transmitted in cleartext.
+        token = generate_password_reset_token(email=user_in.email)
+        setup_link = f"{settings.FRONTEND_HOST}/reset-password?token={token}"
         email_data = generate_new_account_email(
-            email_to=user_in.email, username=user_in.email, password=user_in.password
+            email_to=user_in.email,
+            username=user_in.email,
+            setup_link=setup_link,
         )
         send_email(
             email_to=user_in.email,

@@ -21,8 +21,12 @@ export function MeetingHeader({
   return (
     <header className="flex items-center justify-between border-b px-4 py-3">
       <div className="flex items-center gap-3">
-        <Link to="/" className="text-muted-foreground hover:text-foreground">
-          <LogOut className="h-4 w-4" />
+        <Link
+          to="/"
+          aria-label="Leave meeting and return to dashboard"
+          className="text-muted-foreground hover:text-foreground"
+        >
+          <LogOut className="h-4 w-4" aria-hidden="true" />
         </Link>
         <div className="flex items-center gap-2">
           <code className="font-mono text-sm font-medium">{code}</code>
@@ -30,12 +34,15 @@ export function MeetingHeader({
             variant="ghost"
             size="icon"
             className="h-7 w-7"
+            aria-label={
+              copiedText ? "Meeting code copied" : "Copy meeting code"
+            }
             onClick={() => copy(code)}
           >
             {copiedText ? (
-              <Check className="h-3 w-3 text-green-500" />
+              <Check className="h-3 w-3 text-green-500" aria-hidden="true" />
             ) : (
-              <Copy className="h-3 w-3" />
+              <Copy className="h-3 w-3" aria-hidden="true" />
             )}
           </Button>
         </div>

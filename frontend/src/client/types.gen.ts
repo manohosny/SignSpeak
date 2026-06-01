@@ -74,7 +74,7 @@ export type Message = {
     message: string;
 };
 
-export type MessageType = 'speech_transcript' | 'text_message';
+export type MessageType = 'speech_transcript' | 'text_message' | 'gloss_translation' | 'gloss_input';
 
 export type NewPassword = {
     token: string;
@@ -89,8 +89,13 @@ export type PrivateUserCreate = {
     full_name: string;
 };
 
+export type RefreshTokenRequest = {
+    refresh_token: string;
+};
+
 export type Token = {
     access_token: string;
+    refresh_token?: (string | null);
     token_type?: string;
 };
 
@@ -156,7 +161,19 @@ export type LoginLoginAccessTokenData = {
 
 export type LoginLoginAccessTokenResponse = (Token);
 
+export type LoginRefreshTokenData = {
+    requestBody?: (RefreshTokenRequest | null);
+};
+
+export type LoginRefreshTokenResponse = (Token);
+
 export type LoginTestTokenResponse = (UserPublic);
+
+export type LoginLogoutData = {
+    requestBody?: (RefreshTokenRequest | null);
+};
+
+export type LoginLogoutResponse = (Message);
 
 export type LoginRecoverPasswordData = {
     email: string;
@@ -278,4 +295,8 @@ export type UtilsTestEmailData = {
 
 export type UtilsTestEmailResponse = (Message);
 
-export type UtilsHealthCheckResponse = (boolean);
+export type UtilsHealthCheckResponse = (unknown);
+
+export type UtilsHealthzLiveResponse = (unknown);
+
+export type UtilsHealthzReadyResponse = (unknown);

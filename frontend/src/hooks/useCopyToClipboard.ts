@@ -1,6 +1,8 @@
 // source: https://usehooks-ts.com/react-hook/use-copy-to-clipboard
 import { useCallback, useState } from "react"
 
+import { logWarn } from "@/lib/logger"
+
 type CopiedValue = string | null
 
 type CopyFn = (text: string) => Promise<boolean>
@@ -10,7 +12,7 @@ export function useCopyToClipboard(): [CopiedValue, CopyFn] {
 
   const copy: CopyFn = useCallback(async (text) => {
     if (!navigator?.clipboard) {
-      console.warn("Clipboard not supported")
+      logWarn("Clipboard not supported")
       return false
     }
 
@@ -22,7 +24,7 @@ export function useCopyToClipboard(): [CopiedValue, CopyFn] {
 
       return true
     } catch (error) {
-      console.warn("Copy failed", error)
+      logWarn("Copy failed", { error })
       setCopiedText(null)
       return false
     }

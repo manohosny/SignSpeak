@@ -1,12 +1,13 @@
 import uuid
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query, status
 
 from app.api.deps import (
     CurrentUser,
     SessionDep,
     get_current_active_superuser,
 )
+from app.core.rate_limit import auth_rate_limit
 from app.models import (
     Message,
     UpdatePassword,
@@ -21,18 +22,28 @@ from app.services import user_service
 
 router = APIRouter(prefix="/users", tags=["users"])
 
+# Cap the maximum page so a single GET can't ask for the full table.
+_MAX_USER_PAGE_LIMIT = 200
+
 
 @router.get(
     "/",
     dependencies=[Depends(get_current_active_superuser)],
     response_model=UsersPublic,
 )
-async def read_users(session: SessionDep, skip: int = 0, limit: int = 100) -> UsersPublic:
+async def read_users(
+    session: SessionDep,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=_MAX_USER_PAGE_LIMIT),
+) -> UsersPublic:
     return await user_service.list_users(session=session, skip=skip, limit=limit)
 
 
 @router.post(
-    "/", dependencies=[Depends(get_current_active_superuser)], response_model=UserPublic
+    "/",
+    dependencies=[Depends(get_current_active_superuser)],
+    response_model=UserPublic,
+    status_code=status.HTTP_201_CREATED,
 )
 async def create_user(*, session: SessionDep, user_in: UserCreate) -> UserPublic:
     return await user_service.create_user(session=session, user_in=user_in)
@@ -66,7 +77,12 @@ async def delete_user_me(session: SessionDep, current_user: CurrentUser) -> Mess
     return await user_service.delete_user_me(session=session, current_user=current_user)
 
 
-@router.post("/signup", response_model=UserPublic)
+@router.post(
+    "/signup",
+    response_model=UserPublic,
+    dependencies=[Depends(auth_rate_limit)],
+    status_code=status.HTTP_201_CREATED,
+)
 async def register_user(session: SessionDep, user_in: UserRegister) -> UserPublic:
     return await user_service.register_user(session=session, user_in=user_in)
 

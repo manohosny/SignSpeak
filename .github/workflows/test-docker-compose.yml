@@ -1,4 +1,4 @@
-name: Test Docker Compose
+name: Docker Compose Integration & Image Scan
 
 on:
   push:
@@ -10,17 +10,71 @@ on:
       - synchronize
 
 jobs:
-
   test-docker-compose:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-      - run: docker compose build
-      - run: docker compose down -v --remove-orphans
-      - run: docker compose up -d --wait backend frontend adminer
-      - name: Test backend is up
-        run: curl http://localhost:8000/api/v1/utils/health-check
-      - name: Test frontend is up
-        run: curl http://localhost:5173
-      - run: docker compose down -v --remove-orphans
+
+      - name: Generate .env
+        # .env is no longer committed (it held live secrets). Recreate it from
+        # the template; the bundled `db` service (compose.override.yml) provides
+        # a real database, and mock mode keeps ML model downloads out of CI.
+        run: |
+          cp .env.example .env
+          {
+            echo "STT_MOCK_MODE=true"
+            echo "TRANSLATION_MOCK_MODE=true"
+            echo "TTS_MOCK_MODE=true"
+          } >> .env
+
+      - name: Build images
+        run: docker compose build
+
+      - name: Start the stack
+        # The default merge of compose.yml + compose.override.yml brings up the
+        # local `db`, runs migrations via `prestart`, and drops the GPU
+        # reservation so the stack comes up on a CPU-only runner.
+        run: docker compose up -d --wait backend frontend
+
+      - name: Smoke test — backend liveness
+        run: curl -fsS http://localhost:8000/api/v1/utils/healthz/live
+
+      - name: Smoke test — backend readiness
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8000/api/v1/utils/healthz/ready)
+          echo "readiness endpoint returned HTTP $code"
+          # 200 = models ready; 503 = still warming up. Anything else is a failure.
+          case "$code" in 200|503) ;; *) exit 1 ;; esac
+
+      - name: Smoke test — OpenAPI schema is served
+        # Proves the app fully booted and routes are registered (ENVIRONMENT=local).
+        run: curl -fsS http://localhost:8000/api/v1/openapi.json -o /dev/null
+
+      - name: Smoke test — frontend serves the SPA
+        run: |
+          curl -fsS http://localhost:5173 | grep -q '<div id="root"'
+
+      - name: Scan backend image for vulnerabilities
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: backend:latest
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+
+      - name: Scan frontend image for vulnerabilities
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: frontend:latest
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+
+      - name: Dump logs on failure
+        if: failure()
+        run: docker compose logs --no-color
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v --remove-orphans

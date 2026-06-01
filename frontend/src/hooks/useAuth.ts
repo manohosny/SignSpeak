@@ -8,13 +8,19 @@ import {
   type UserRegister,
   UsersService,
 } from "@/client"
+import { clearLocalSession, hasSessionMarker } from "@/lib/auth-tokens"
 import { QUERY_KEYS } from "@/lib/constants"
 import { handleError } from "@/utils"
 import useCustomToast from "./useCustomToast"
 
-const isLoggedIn = () => {
-  return localStorage.getItem("access_token") !== null
-}
+/**
+ * Synchronous "is the user logged in?" check used by route guards.
+ *
+ * Reads the non-HttpOnly `ss_session` marker cookie set by the backend.
+ * The marker contains no payload — it just signals the FE that an
+ * HttpOnly access-token cookie should be sitting alongside it.
+ */
+const isLoggedIn = () => hasSessionMarker()
 
 const useAuth = () => {
   const navigate = useNavigate()
@@ -40,12 +46,11 @@ const useAuth = () => {
     },
   })
 
-  const login = async (data: AccessToken) => {
-    const response = await LoginService.loginAccessToken({
-      formData: data,
-    })
-    localStorage.setItem("access_token", response.access_token)
-  }
+  // Cookies are set by the backend as part of the response — we only
+  // need to await the call. The JSON body still comes back too, for
+  // backwards compat with non-browser API clients, but we ignore it.
+  const login = (data: AccessToken) =>
+    LoginService.loginAccessToken({ formData: data })
 
   const loginMutation = useMutation({
     mutationFn: login,
@@ -55,8 +60,17 @@ const useAuth = () => {
     onError: handleError.bind(showErrorToast),
   })
 
-  const logout = () => {
-    localStorage.removeItem("access_token")
+  const logout = async () => {
+    // Server-side: revoke the refresh token and clear the auth cookies.
+    // The browser sends the HttpOnly refresh cookie automatically; we
+    // swallow failures so local cleanup runs even when offline.
+    try {
+      await LoginService.logout()
+    } catch {
+      // ignored — local cleanup runs regardless
+    }
+    clearLocalSession()
+    queryClient.clear()
     navigate({ to: "/login" })
   }
 

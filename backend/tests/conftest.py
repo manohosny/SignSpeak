@@ -56,6 +56,17 @@ async def async_db() -> AsyncGenerator[AsyncSession, None]:
         yield session
 
 
+@pytest.fixture(autouse=True)
+def _reset_auth_rate_limit() -> Generator[None, None, None]:
+    """Wipe the auth-endpoint rate-limit singleton between tests so prior
+    test traffic doesn't deplete the bucket and trip 429s in unrelated tests."""
+    from app.core.rate_limit import reset_for_tests
+
+    reset_for_tests()
+    yield
+    reset_for_tests()
+
+
 @pytest.fixture(scope="module")
 def client() -> Generator[TestClient, None, None]:
     with TestClient(app) as c:

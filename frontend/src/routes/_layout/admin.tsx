@@ -21,19 +21,21 @@ function getUsersQueryOptions() {
 export const Route = createFileRoute("/_layout/admin")({
   component: Admin,
   beforeLoad: async () => {
-    const user = await UsersService.readUserMe()
-    if (!user.is_superuser) {
-      throw redirect({
-        to: "/",
-      })
+    try {
+      const user = await UsersService.readUserMe()
+      if (!user.is_superuser) {
+        throw redirect({ to: "/" })
+      }
+    } catch (err) {
+      // Re-throw redirects from the gate above; otherwise (e.g., 401 on a
+      // stale token) bounce to login rather than rendering an error
+      // boundary in the admin shell.
+      if (err && typeof err === "object" && "to" in err) throw err
+      throw redirect({ to: "/login" })
     }
   },
   head: () => ({
-    meta: [
-      {
-        title: "Admin - FastAPI Template",
-      },
-    ],
+    meta: [{ title: "Admin - SignSpeak" }],
   }),
 })
 

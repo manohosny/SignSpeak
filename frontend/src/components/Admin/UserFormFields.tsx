@@ -1,4 +1,4 @@
-import type { UseFormReturn } from "react-hook-form"
+import type { FieldValues, UseFormReturn } from "react-hook-form"
 
 import { Checkbox } from "@/components/ui/checkbox"
 import {
@@ -10,8 +10,13 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 
+// Accept any react-hook-form return shape — every user-form schema in
+// this codebase has the same field names (`email`, `password`, …) and
+// the FormField path-strings are validated at runtime by zod, so giving
+// up the compile-time path narrowing is a fair trade for letting Add /
+// Edit reuse the same fields component without three duplicate copies.
 interface UserFormFieldsProps {
-  form: UseFormReturn<any>
+  form: UseFormReturn<FieldValues>
   passwordRequired?: boolean
 }
 
@@ -19,10 +24,11 @@ export function UserFormFields({
   form,
   passwordRequired = true,
 }: UserFormFieldsProps) {
+  const { control } = form
   return (
     <>
       <FormField
-        control={form.control}
+        control={control}
         name="email"
         render={({ field }) => (
           <FormItem>
@@ -30,7 +36,13 @@ export function UserFormFields({
               Email <span className="text-destructive">*</span>
             </FormLabel>
             <FormControl>
-              <Input placeholder="Email" type="email" {...field} required />
+              <Input
+                placeholder="Email"
+                type="email"
+                autoComplete="email"
+                {...field}
+                required
+              />
             </FormControl>
             <FormMessage />
           </FormItem>
@@ -38,13 +50,18 @@ export function UserFormFields({
       />
 
       <FormField
-        control={form.control}
+        control={control}
         name="full_name"
         render={({ field }) => (
           <FormItem>
             <FormLabel>Full Name</FormLabel>
             <FormControl>
-              <Input placeholder="Full name" type="text" {...field} />
+              <Input
+                placeholder="Full name"
+                type="text"
+                autoComplete="name"
+                {...field}
+              />
             </FormControl>
             <FormMessage />
           </FormItem>
@@ -52,7 +69,7 @@ export function UserFormFields({
       />
 
       <FormField
-        control={form.control}
+        control={control}
         name="password"
         render={({ field }) => (
           <FormItem>
@@ -64,6 +81,7 @@ export function UserFormFields({
               <Input
                 placeholder="Password"
                 type="password"
+                autoComplete="new-password"
                 {...field}
                 required={passwordRequired}
               />
@@ -74,7 +92,7 @@ export function UserFormFields({
       />
 
       <FormField
-        control={form.control}
+        control={control}
         name="confirm_password"
         render={({ field }) => (
           <FormItem>
@@ -86,6 +104,7 @@ export function UserFormFields({
               <Input
                 placeholder="Password"
                 type="password"
+                autoComplete="new-password"
                 {...field}
                 required={passwordRequired}
               />
@@ -96,7 +115,7 @@ export function UserFormFields({
       />
 
       <FormField
-        control={form.control}
+        control={control}
         name="is_superuser"
         render={({ field }) => (
           <FormItem className="flex items-center gap-3 space-y-0">
@@ -112,7 +131,7 @@ export function UserFormFields({
       />
 
       <FormField
-        control={form.control}
+        control={control}
         name="is_active"
         render={({ field }) => (
           <FormItem className="flex items-center gap-3 space-y-0">

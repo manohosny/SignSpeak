@@ -1,3 +1,12 @@
+# ============================================================================
+# LOCAL DEV / CI ONLY — do NOT use in staging or production.
+#
+# Docker Compose auto-merges this file on top of compose.yml for `docker
+# compose up`. It runs Traefik with `--api.insecure=true` (unauthenticated
+# dashboard on :8090), exposes raw service ports, and ships a default-password
+# Postgres. Production must deploy with `-f compose.yml` only (the deploy
+# workflows already do this); see compose.traefik.yml for the secured proxy.
+# ============================================================================
 services:
 
   # Local services are available on their ports, but also available on:
@@ -45,6 +54,44 @@ services:
       - traefik-public
       - default
 
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # Local PostgreSQL for offline / isolated development and CI. Production
+  # uses a hosted database (DATABASE_URL); this service is dev/CI-only and
+  # lives in the override file so `docker compose -f compose.yml ...` (prod)
+  # never starts it. Reached via the POSTGRES_* settings, not DATABASE_URL.
+  db:
+    image: postgres:17
+    restart: "no"
+    volumes:
+      - app-db-data:/var/lib/postgresql/data/pgdata
+    environment:
+      - PGDATA=/var/lib/postgresql/data/pgdata
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-changethis}
+      - POSTGRES_DB=${POSTGRES_DB:-app}
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-app}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Override the prestart (migrations) job to target the local `db` service.
+  prestart:
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      POSTGRES_SERVER: "db"
+
   backend:
     restart: "no"
     ports:
@@ -71,11 +118,25 @@ services:
     # TODO: remove once coverage is done locally
     volumes:
       - ./backend/htmlcov:/app/backend/htmlcov
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
       SMTP_HOST: "mailcatcher"
       SMTP_PORT: "1025"
       SMTP_TLS: "false"
       EMAILS_FROM_EMAIL: "noreply@example.com"
+      REDIS_URL: "redis://redis:6379/0"
+      # Reach the bundled `db` service instead of the host / hosted provider.
+      POSTGRES_SERVER: "db"
+    deploy:
+      resources:
+        # Local dev / CI run on CPU — drop the GPU reservation from
+        # compose.yml so the stack comes up without an NVIDIA runtime.
+        # `!reset` clears the inherited value instead of merging into it.
+        reservations: !reset null
 
   mailcatcher:
     image: schickling/mailcatcher
@@ -86,13 +147,13 @@ services:
   frontend:
     restart: "no"
     ports:
-      - "5173:80"
+      # nginx-unprivileged serves on 8080 inside the container.
+      - "5173:8080"
     build:
       context: .
       dockerfile: frontend/Dockerfile
       args:
         - VITE_API_URL=http://localhost:8000
-        - NODE_ENV=development
 
   playwright:
     build:
@@ -100,7 +161,6 @@ services:
       dockerfile: frontend/Dockerfile.playwright
       args:
         - VITE_API_URL=http://backend:8000
-        - NODE_ENV=production
     ipc: host
     depends_on:
       - backend
@@ -118,6 +178,9 @@ services:
       - ./frontend/test-results:/app/frontend/test-results
     ports:
       - 9323:9323
+
+volumes:
+  app-db-data:
 
 networks:
   traefik-public:

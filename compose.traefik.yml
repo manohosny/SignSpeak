@@ -61,6 +61,14 @@ services:
       - --log
       # Enable the Dashboard and API
       - --api
+      # Enable the /ping endpoint so the container healthcheck below can probe it
+      - --ping
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     networks:
       # Use the public network created to be shared between Traefik and
       # any other service that needs to be publicly available with HTTPS

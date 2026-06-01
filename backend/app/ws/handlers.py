@@ -4,6 +4,7 @@ Processes incoming audio (from speaker) through STT, persists transcripts,
 broadcasts to the reader, and generates TTS audio for the speaker.
 """
 
+import asyncio
 import logging
 import time
 import uuid
@@ -11,6 +12,7 @@ from datetime import datetime, timezone
 
 from app import crud_meeting
 from app.core.db import async_session_factory
+from app.core.logging import time_stage
 from app.ml.audio_utils import pcm16_bytes_to_float32
 from app.ml.stt import StreamingSTTBuffer, stt_engine
 from app.ml.translation import translation_engine
@@ -54,6 +56,12 @@ class MeetingHandler:
         # Audio rate limiting state
         self._audio_tokens: float = float(self.AUDIO_BURST_LIMIT)
         self._audio_last_refill: float = time.monotonic()
+        # Serialize STT state-machine transitions. The current dispatch
+        # path serializes naturally per-speaker, but defending the buffer's
+        # peek/get/flush sequence with an explicit lock means a future
+        # parallel transcription path can't interleave half-finished
+        # utterances on the shared StreamingSTTBuffer.
+        self._stt_lock = asyncio.Lock()
 
     async def handle_audio_chunk(
         self,
@@ -73,6 +81,17 @@ class MeetingHandler:
                 "Oversized audio chunk (%d bytes) from %s — dropped",
                 len(audio_bytes), sender_id,
             )
+            # Tell the sender instead of dropping silently — otherwise the
+            # speaker sees no transcript and has no idea their audio was
+            # rejected for being too large.
+            await manager.send_json_to_user(
+                meeting_id=self.meeting_id,
+                user_id=sender_id,
+                data={
+                    "type": "error",
+                    "message": "Audio chunk too large — dropped",
+                },
+            )
             return
 
         now = time.monotonic()
@@ -88,6 +107,12 @@ class MeetingHandler:
 
         self._audio_tokens -= 1.0
 
+        async with self._stt_lock:
+            await self._handle_audio_chunk_locked(sender_id, audio_bytes)
+
+    async def _handle_audio_chunk_locked(
+        self, sender_id: uuid.UUID, audio_bytes: bytes
+    ) -> None:
         audio_float32 = pcm16_bytes_to_float32(audio_bytes)
         self.stt_buffer.feed(audio_float32)
 
@@ -122,7 +147,8 @@ class MeetingHandler:
         if isinstance(chunk_result, tuple):
             # Utterance mode — safety-cap flush: (audio, utterance_id)
             audio_chunk, uid = chunk_result
-            transcript = await stt_engine.transcribe(audio_chunk)
+            with time_stage("stt", logger=logger, source="safety_cap"):
+                transcript = await stt_engine.transcribe(audio_chunk)
             if transcript:
                 logger.debug("STT (safety-cap): %s...", transcript[:80])
                 await self._broadcast_transcript(
@@ -133,7 +159,8 @@ class MeetingHandler:
                 )
         else:
             # Fixed mode — original behavior
-            transcript = await stt_engine.transcribe(chunk_result)
+            with time_stage("stt", logger=logger, source="fixed_chunk"):
+                transcript = await stt_engine.transcribe(chunk_result)
             if transcript:
                 logger.debug("STT: %s...", transcript[:80])
                 await self._broadcast_transcript(sender_id, transcript)
@@ -150,13 +177,18 @@ class MeetingHandler:
         if not self._active:
             return
 
+        async with self._stt_lock:
+            await self._handle_utterance_end_locked(sender_id)
+
+    async def _handle_utterance_end_locked(self, sender_id: uuid.UUID) -> None:
         result = self.stt_buffer.flush_utterance()
         if result is None:
             # Buffer empty or too short (< 100ms) — nothing to transcribe
             return
 
         audio, uid = result
-        transcript = await stt_engine.transcribe(audio)
+        with time_stage("stt", logger=logger, source="utterance_end"):
+            transcript = await stt_engine.transcribe(audio)
         if not transcript:
             return
 
@@ -230,13 +262,45 @@ class MeetingHandler:
                 )
 
                 chunk_count = 0
-                async for wav_chunk in tts_engine.synthesize_sentences_streaming(content):
-                    await manager.send_bytes_to_user(
-                        meeting_id=self.meeting_id,
-                        user_id=speaker.user_id,
-                        data=wav_chunk,
-                    )
-                    chunk_count += 1
+                tts_stream = tts_engine.synthesize_sentences_streaming(content)
+                with time_stage(
+                    "tts",
+                    logger=logger,
+                    source="text_message",
+                    chars=len(content),
+                ):
+                    try:
+                        async for wav_chunk in tts_stream:
+                            sent = await manager.send_bytes_to_user(
+                                meeting_id=self.meeting_id,
+                                user_id=speaker.user_id,
+                                data=wav_chunk,
+                            )
+                            if not sent:
+                                # Speaker disconnected mid-stream —
+                                # close the generator so the producer
+                                # thread can stop instead of draining
+                                # into a dead queue.
+                                logger.info(
+                                    "TTS abort — speaker disconnected after %d chunks",
+                                    chunk_count,
+                                )
+                                break
+                            chunk_count += 1
+                    finally:
+                        aclose = getattr(tts_stream, "aclose", None)
+                        if aclose is not None:
+                            try:
+                                await aclose()
+                            except Exception as exc:
+                                # Don't mask the original streaming outcome,
+                                # but a failed cleanup can leave the producer
+                                # in a bad state — make it visible.
+                                logger.warning(
+                                    "TTS generator cleanup (aclose) failed: %s",
+                                    exc,
+                                    exc_info=True,
+                                )
 
                 logger.info("TTS: streamed %d chunks to speaker", chunk_count)
 
@@ -257,10 +321,11 @@ class MeetingHandler:
                     },
                 )
 
-        await self._save_message(
+        await self._persist_user_message(
             sender_id=sender_id,
             content=content,
             msg_type=MessageType.text_message,
+            notify_label="your message",
         )
 
     async def handle_gloss_message(
@@ -308,15 +373,17 @@ class MeetingHandler:
                 user_id=sender_id,
                 data={"type": "error", "message": "Translation engine not available"},
             )
-            await self._save_message(
+            await self._persist_user_message(
                 sender_id=sender_id,
                 content=content,
                 msg_type=MessageType.gloss_input,
+                notify_label="your gloss",
             )
             return
 
         try:
-            english = await translation_engine.gloss_to_english(content)
+            with time_stage("translation", logger=logger, direction="gloss_to_english"):
+                english = await translation_engine.gloss_to_english(content)
         except Exception as e:
             logger.error("Gloss translation error: %s", e)
             english = None
@@ -327,24 +394,31 @@ class MeetingHandler:
                 user_id=sender_id,
                 data={"type": "error", "message": "Could not translate gloss"},
             )
-            await self._save_message(
+            await self._persist_user_message(
                 sender_id=sender_id,
                 content=content,
                 msg_type=MessageType.gloss_input,
+                notify_label="your gloss",
             )
             return
 
-        # Persist both: raw gloss input and translated English
-        await self._save_message(
+        # Persist both: raw gloss input and translated English. Notify the
+        # user only once on failure (the gloss carries the user-originated
+        # signal — the English derivation rides on the same intent).
+        gloss_ok = await self._persist_user_message(
             sender_id=sender_id,
             content=content,
             msg_type=MessageType.gloss_input,
+            notify_label="your gloss",
         )
-        await self._save_message(
-            sender_id=sender_id,
-            content=english,
-            msg_type=MessageType.text_message,
-        )
+        if gloss_ok:
+            # Best-effort save of the derived English; failure here is
+            # already covered by the gloss save's error path semantics.
+            await self._save_message(
+                sender_id=sender_id,
+                content=english,
+                msg_type=MessageType.text_message,
+            )
 
         # TTS: stream English to speaker (reuse existing TTS path)
         if not speaker:
@@ -363,13 +437,41 @@ class MeetingHandler:
                 data={"type": "tts_start"},
             )
             chunk_count = 0
-            async for wav_chunk in tts_engine.synthesize_sentences_streaming(english):
-                await manager.send_bytes_to_user(
-                    meeting_id=self.meeting_id,
-                    user_id=speaker.user_id,
-                    data=wav_chunk,
-                )
-                chunk_count += 1
+            tts_stream = tts_engine.synthesize_sentences_streaming(english)
+            with time_stage(
+                "tts",
+                logger=logger,
+                source="gloss_message",
+                chars=len(english),
+            ):
+                try:
+                    async for wav_chunk in tts_stream:
+                        sent = await manager.send_bytes_to_user(
+                            meeting_id=self.meeting_id,
+                            user_id=speaker.user_id,
+                            data=wav_chunk,
+                        )
+                        if not sent:
+                            logger.info(
+                                "TTS (gloss) abort — speaker disconnected after %d chunks",
+                                chunk_count,
+                            )
+                            break
+                        chunk_count += 1
+                finally:
+                    aclose = getattr(tts_stream, "aclose", None)
+                    if aclose is not None:
+                        try:
+                            await aclose()
+                        except Exception as exc:
+                            # Don't mask the original streaming outcome,
+                            # but a failed cleanup can leave the producer
+                            # in a bad state — make it visible.
+                            logger.warning(
+                                "TTS generator cleanup (aclose) failed: %s",
+                                exc,
+                                exc_info=True,
+                            )
             logger.info("TTS (from gloss): streamed %d chunks to speaker", chunk_count)
             await manager.send_json_to_user(
                 meeting_id=self.meeting_id,
@@ -484,7 +586,12 @@ class MeetingHandler:
                 gloss = None
                 if translation_engine.is_loaded:
                     try:
-                        gloss = await translation_engine.english_to_gloss(transcript)
+                        with time_stage(
+                            "translation",
+                            logger=logger,
+                            direction="english_to_gloss",
+                        ):
+                            gloss = await translation_engine.english_to_gloss(transcript)
                     except Exception as e:
                         logger.error("Translation error in broadcast: %s", e)
 
@@ -529,8 +636,16 @@ class MeetingHandler:
         sender_id: uuid.UUID,
         content: str,
         msg_type: MessageType,
-    ) -> None:
-        """Save message to DB via existing CRUD layer. Non-blocking, non-critical."""
+    ) -> bool:
+        """Save message to DB. Returns True on success, False on failure.
+
+        Callers persisting user-originated content (text/gloss) should
+        check the return value and surface an `error` to the sender so
+        the user knows their message was not stored. Callers persisting
+        auto-generated content (transcripts) can ignore the return value
+        — sending a delayed error after a real-time transcript is more
+        confusing than helpful, and Sentry already captures the failure.
+        """
         try:
             async with async_session_factory() as session:
                 await crud_meeting.save_message(
@@ -541,10 +656,45 @@ class MeetingHandler:
                     msg_type=msg_type,
                 )
                 await session.commit()
+            return True
         except Exception as e:
-            logger.error("Failed to save message: %s", e)
+            logger.error("Failed to save message: %s", e, exc_info=True)
+            return False
 
-    def cleanup(self) -> None:
+    async def _persist_user_message(
+        self,
+        sender_id: uuid.UUID,
+        content: str,
+        msg_type: MessageType,
+        notify_label: str,
+    ) -> bool:
+        """Persist user-originated content; on failure, notify the sender.
+
+        `notify_label` is shown to the user in the error toast, e.g.
+        "your message" or "your gloss". Returns the underlying save
+        result so callers can branch if they need to.
+        """
+        ok = await self._save_message(
+            sender_id=sender_id, content=content, msg_type=msg_type
+        )
+        if not ok:
+            await manager.send_json_to_user(
+                meeting_id=self.meeting_id,
+                user_id=sender_id,
+                data={
+                    "type": "error",
+                    "message": (
+                        f"Could not save {notify_label} — "
+                        "it was delivered but won't appear on reload"
+                    ),
+                },
+            )
+        return ok
+
+    async def cleanup(self) -> None:
+        """Quiesce a handler. Async so future cleanup steps (cancelling
+        in-flight TTS/STT tasks, draining queues) can be awaited without
+        a sync-vs-async mismatch."""
         self._active = False
         self.stt_buffer.clear()
 
@@ -559,7 +709,7 @@ def get_or_create_handler(meeting_id: uuid.UUID) -> MeetingHandler:
     return _handlers[meeting_id]
 
 
-def remove_handler(meeting_id: uuid.UUID) -> None:
+async def remove_handler(meeting_id: uuid.UUID) -> None:
     handler = _handlers.pop(meeting_id, None)
     if handler:
-        handler.cleanup()
+        await handler.cleanup()

@@ -37,11 +37,7 @@ export const Route = createFileRoute("/recover-password")({
     }
   },
   head: () => ({
-    meta: [
-      {
-        title: "Recover Password - FastAPI Template",
-      },
-    ],
+    meta: [{ title: "Recover Password - SignSpeak" }],
   }),
 })
 
@@ -97,6 +93,7 @@ function RecoverPassword() {
                       data-testid="email-input"
                       placeholder="user@example.com"
                       type="email"
+                      autoComplete="email"
                       {...field}
                     />
                   </FormControl>

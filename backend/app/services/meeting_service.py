@@ -72,6 +72,16 @@ async def join_meeting(
     role: ParticipantRole = ParticipantRole.reader,
 ) -> Meeting:
     """A user joins an existing meeting. Validates status, capacity, and uniqueness."""
+    # Serialize concurrent joins on this meeting. Without a row lock the
+    # participant-count check and the waiting→active transition below can
+    # interleave: two readers joining at once both observe one participant,
+    # both insert, and neither flips the meeting to `active` — leaving it
+    # stuck in `waiting` with both people present. `refresh` with
+    # `with_for_update=True` issues SELECT ... FOR UPDATE and re-reads the
+    # row, so the status checks below see committed state. The lock is held
+    # until this function commits.
+    await session.refresh(meeting, with_for_update=True)
+
     if meeting.status == MeetingStatus.ended:
         raise_meeting_already_ended()
 

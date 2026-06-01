@@ -34,11 +34,7 @@ export const Route = createFileRoute("/login")({
     }
   },
   head: () => ({
-    meta: [
-      {
-        title: "Log In - FastAPI Template",
-      },
-    ],
+    meta: [{ title: "Log In - SignSpeak" }],
   }),
 })
 
@@ -82,6 +78,7 @@ function Login() {
                       data-testid="email-input"
                       placeholder="user@example.com"
                       type="email"
+                      autoComplete="email"
                       {...field}
                     />
                   </FormControl>
@@ -108,6 +105,7 @@ function Login() {
                     <PasswordInput
                       data-testid="password-input"
                       placeholder="Password"
+                      autoComplete="current-password"
                       {...field}
                     />
                   </FormControl>

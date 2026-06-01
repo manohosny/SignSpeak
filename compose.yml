@@ -24,6 +24,11 @@ services:
       - SMTP_PASSWORD=${SMTP_PASSWORD}
       - EMAILS_FROM_EMAIL=${EMAILS_FROM_EMAIL}
       - SENTRY_DSN=${SENTRY_DSN}
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 1G
 
   redis:
     image: redis:7-alpine
@@ -35,6 +40,13 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          memory: 64M
 
   backend:
     image: '${DOCKER_IMAGE_BACKEND?Variable not set}:${TAG-latest}'
@@ -63,29 +75,43 @@ services:
       - EMAILS_FROM_EMAIL=${EMAILS_FROM_EMAIL}
       - SENTRY_DSN=${SENTRY_DSN}
       - REDIS_URL=redis://redis:6379/0
-      - HF_HOME=/root/.cache/huggingface
-      - TORCH_HOME=/root/.cache/torch
+      # ML caches live under the non-root user's home (see backend/Dockerfile).
+      - HF_HOME=/home/appuser/.cache/huggingface
+      - TORCH_HOME=/home/appuser/.cache/torch
       - KOKORO_MODEL_PATH=/app/backend/models/kokoro-v1.0.onnx
       - KOKORO_VOICES_PATH=/app/backend/models/voices-v1.0.bin
 
     volumes:
-      - model-cache-hf:/root/.cache/huggingface
-      - model-cache-torch:/root/.cache/torch
+      - model-cache-hf:/home/appuser/.cache/huggingface
+      - model-cache-torch:/home/appuser/.cache/torch
       - kokoro-models:/app/backend/models
 
     deploy:
       resources:
+        # NOTE: `memory` must be tuned to the real model footprint — set too
+        # low, the ML container is OOM-killed mid-inference; too high, it can
+        # still starve the host. Measure with `docker stats` under load.
+        limits:
+          cpus: '4'
+          memory: 8G
         reservations:
+          memory: 2G
           devices:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
 
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/utils/health-check/"]
+      # Liveness probe — does not gate on ML model load. ML loads can
+      # take 30+ seconds on cold start; healthchecks against /ready
+      # would mark the container unhealthy and trigger restarts before
+      # models finish initializing. start_period below adds a generous
+      # grace window for the same reason.
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/utils/healthz/live"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 90s
 
     build:
       context: .
@@ -114,18 +140,31 @@ services:
     networks:
       - traefik-public
       - default
+    healthcheck:
+      # nginx-unprivileged serves on 8080; busybox wget ships in the alpine image.
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8080/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 128M
+        reservations:
+          memory: 32M
     build:
       context: .
       dockerfile: frontend/Dockerfile
       args:
         - VITE_API_URL=https://api.${DOMAIN?Variable not set}
-        - NODE_ENV=production
     labels:
       - traefik.enable=true
       - traefik.docker.network=traefik-public
       - traefik.constraint-label=traefik-public
 
-      - traefik.http.services.${STACK_NAME?Variable not set}-frontend.loadbalancer.server.port=80
+      - traefik.http.services.${STACK_NAME?Variable not set}-frontend.loadbalancer.server.port=8080
 
       - traefik.http.routers.${STACK_NAME?Variable not set}-frontend-http.rule=Host(`dashboard.${DOMAIN?Variable not set}`)
       - traefik.http.routers.${STACK_NAME?Variable not set}-frontend-http.entrypoints=http

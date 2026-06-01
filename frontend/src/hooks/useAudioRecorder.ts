@@ -26,6 +26,19 @@ export function useAudioRecorder({
   onChunkRef.current = onAudioChunk
   onVadChangeRef.current = onVadChange
 
+  const teardown = useCallback(() => {
+    streamRef.current?.getTracks().forEach((t) => {
+      t.stop()
+    })
+    streamRef.current = null
+
+    audioContextRef.current?.close().catch(() => {
+      // Closing a context that's already closed throws InvalidStateError;
+      // we intentionally swallow it — the caller already wants it gone.
+    })
+    audioContextRef.current = null
+  }, [])
+
   const startRecording = useCallback(async () => {
     if (!enabled) return
     setError(null)
@@ -76,26 +89,21 @@ export function useAudioRecorder({
 
       setIsRecording(true)
     } catch (err) {
+      // Free the half-initialized stream + context so retries don't leak.
+      teardown()
       const msg =
         err instanceof DOMException && err.name === "NotAllowedError"
           ? "Microphone permission denied"
           : "Failed to start recording"
       setError(msg)
     }
-  }, [enabled, vadEnabled])
+  }, [enabled, vadEnabled, teardown])
 
   const stopRecording = useCallback(() => {
-    streamRef.current?.getTracks().forEach((t) => {
-      t.stop()
-    })
-    streamRef.current = null
-
-    audioContextRef.current?.close()
-    audioContextRef.current = null
-
+    teardown()
     setIsRecording(false)
     setIsSpeaking(false)
-  }, [])
+  }, [teardown])
 
   return { isRecording, isSpeaking, startRecording, stopRecording, error }
 }

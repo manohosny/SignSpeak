@@ -86,6 +86,13 @@ def _clean_ws_state():
     """Clear WebSocket singleton state after each test."""
     yield
     manager._local.clear()
+    # Cancel any active per-meeting subscribe tasks so they don't leak
+    # across tests (introduced in Task 5: Redis subscribe wiring).
+    for task in list(getattr(manager, "_subscribe_tasks", {}).values()):
+        if not task.done():
+            task.cancel()
+    if hasattr(manager, "_subscribe_tasks"):
+        manager._subscribe_tasks.clear()
     if hasattr(manager._backend, "_meetings"):
         manager._backend._meetings.clear()
     _handlers.clear()

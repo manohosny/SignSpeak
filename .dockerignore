@@ -1,0 +1,58 @@
+# Root .dockerignore — applies to every image build, since both
+# backend/Dockerfile and frontend/Dockerfile use `context: .` (repo root).
+# Patterns are relative to the build context (the repo root).
+#
+# NOTE: backend/ and frontend/ each had their own .dockerignore, but Docker
+# only honors an ignore file at the *context root*, so those were never
+# applied. This file replaces them.
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Python caches & build artifacts
+**/__pycache__
+**/*.pyc
+**/.mypy_cache
+**/.pytest_cache
+**/.ruff_cache
+**/.coverage
+**/htmlcov
+**/.venv
+backend/app.egg-info
+
+# Node / frontend build output & deps
+**/node_modules
+frontend/dist
+frontend/dist-ssr
+
+# Test artifacts & reports
+**/test-results
+**/playwright-report
+**/blob-report
+**/all-blob-reports
+**/playwright/.cache
+
+# Environment files — never ship secrets into an image (templates are kept)
+**/.env
+**/.env.*
+!**/.env.example
+
+# ML model weights — provided at runtime via volumes, never baked in
+**/*.onnx
+**/*.bin
+**/*.pt
+**/*.pth
+**/*.safetensors
+
+# Editor / OS cruft
+**/.vscode
+**/.idea
+**/*.swp
+**/.DS_Store
+
+# CI config, worktrees, tooling — not needed inside images
+.github
+.worktrees
+.claude

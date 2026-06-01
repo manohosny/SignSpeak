@@ -34,11 +34,7 @@ export const Route = createFileRoute("/signup")({
     }
   },
   head: () => ({
-    meta: [
-      {
-        title: "Sign Up - FastAPI Template",
-      },
-    ],
+    meta: [{ title: "Sign Up - SignSpeak" }],
   }),
 })
 
@@ -87,6 +83,7 @@ function SignUp() {
                       data-testid="full-name-input"
                       placeholder="User"
                       type="text"
+                      autoComplete="name"
                       {...field}
                     />
                   </FormControl>
@@ -106,6 +103,7 @@ function SignUp() {
                       data-testid="email-input"
                       placeholder="user@example.com"
                       type="email"
+                      autoComplete="email"
                       {...field}
                     />
                   </FormControl>
@@ -124,6 +122,7 @@ function SignUp() {
                     <PasswordInput
                       data-testid="password-input"
                       placeholder="Password"
+                      autoComplete="new-password"
                       {...field}
                     />
                   </FormControl>
@@ -142,6 +141,7 @@ function SignUp() {
                     <PasswordInput
                       data-testid="confirm-password-input"
                       placeholder="Confirm Password"
+                      autoComplete="new-password"
                       {...field}
                     />
                   </FormControl>

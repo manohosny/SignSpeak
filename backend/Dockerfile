@@ -40,6 +40,21 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     uv sync --frozen --package app
 
+# Run the app as a non-root user. The build steps above need root (uv install
+# and bytecode compilation); only the final runtime process drops privileges,
+# which limits the blast radius of a container compromise.
+#
+# ML caches (Hugging Face, Torch) and the model directory are relocated under
+# the user's home so the named volumes mounted there (see compose.yml) are
+# owned by — and writable for — the non-root user.
+RUN useradd --create-home appuser \
+    && mkdir -p /home/appuser/.cache/huggingface \
+                /home/appuser/.cache/torch \
+                /app/backend/models \
+    && chown -R appuser:appuser /home/appuser /app/backend/models
+
 WORKDIR /app/backend/
+
+USER appuser
 
 CMD ["fastapi", "run", "--workers", "1", "app/main.py"]

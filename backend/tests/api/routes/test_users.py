@@ -356,7 +356,7 @@ def test_register_user(client: TestClient, db: Session) -> None:
         f"{settings.API_V1_STR}/users/signup",
         json=data,
     )
-    assert r.status_code == 200
+    assert r.status_code == 201
     created_user = r.json()
     assert created_user["email"] == username
     assert created_user["full_name"] == full_name

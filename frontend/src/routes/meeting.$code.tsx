@@ -1,6 +1,8 @@
 import { createFileRoute, Link, redirect } from "@tanstack/react-router"
 import { Loader2 } from "lucide-react"
+import { useState } from "react"
 
+import { MeetingErrorBoundary } from "@/components/Meeting/MeetingErrorBoundary"
 import { MeetingHeader } from "@/components/Meeting/MeetingHeader"
 import { ReaderView } from "@/components/Meeting/ReaderView"
 import { SpeakerView } from "@/components/Meeting/SpeakerView"
@@ -23,6 +25,9 @@ export const Route = createFileRoute("/meeting/$code")({
 
 function MeetingRoom() {
   const { code } = Route.useParams()
+  // Bump to force a clean remount of the meeting subtree when the user clicks
+  // "Rejoin meeting" from the error fallback.
+  const [resetKey, setResetKey] = useState(0)
   const {
     meetingState,
     role,
@@ -33,7 +38,10 @@ function MeetingRoom() {
     toggleMic,
     isMicOn,
     isSpeaking,
+    isPartnerSpeaking,
+    micError,
     hasPendingAudio,
+    retry,
   } = useMeeting(code)
 
   return (
@@ -53,16 +61,33 @@ function MeetingRoom() {
       {meetingState === "waiting" && <WaitingRoom code={code} />}
 
       {meetingState === "active" && role === "speaker" && (
-        <SpeakerView
-          isMicOn={isMicOn}
-          isSpeaking={isSpeaking}
-          onToggleMic={toggleMic}
-          hasPendingAudio={hasPendingAudio}
-        />
+        <MeetingErrorBoundary
+          resetKey={resetKey}
+          onReset={() => setResetKey((k) => k + 1)}
+        >
+          <SpeakerView
+            key={resetKey}
+            isMicOn={isMicOn}
+            isSpeaking={isSpeaking}
+            isPartnerSpeaking={isPartnerSpeaking}
+            onToggleMic={toggleMic}
+            micError={micError}
+            hasPendingAudio={hasPendingAudio}
+          />
+        </MeetingErrorBoundary>
       )}
 
       {meetingState === "active" && role === "reader" && (
-        <ReaderView glosses={glosses} onSendGloss={sendGlossMessage} />
+        <MeetingErrorBoundary
+          resetKey={resetKey}
+          onReset={() => setResetKey((k) => k + 1)}
+        >
+          <ReaderView
+            key={resetKey}
+            glosses={glosses}
+            onSendGloss={sendGlossMessage}
+          />
+        </MeetingErrorBoundary>
       )}
 
       {meetingState === "ended" && (
@@ -81,9 +106,12 @@ function MeetingRoom() {
           <p className="text-muted-foreground">
             {error || "Something went wrong."}
           </p>
-          <Button asChild>
-            <Link to="/">Back to Dashboard</Link>
-          </Button>
+          <div className="flex gap-2">
+            <Button onClick={retry}>Retry</Button>
+            <Button variant="outline" asChild>
+              <Link to="/">Back to Dashboard</Link>
+            </Button>
+          </div>
         </div>
       )}
     </div>

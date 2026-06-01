@@ -92,8 +92,13 @@ def generate_reset_password_email(
 
 
 def generate_new_account_email(
-    email_to: str, username: str, password: str
+    email_to: str, username: str, setup_link: str
 ) -> EmailData:
+    """Account creation notification with a one-time setup link.
+
+    Plaintext passwords are deliberately not included — emails frequently
+    transit unencrypted and are logged by mailbox providers.
+    """
     project_name = settings.PROJECT_NAME
     subject = f"{project_name} - New account for user {username}"
     html_content = render_email_template(
@@ -101,9 +106,8 @@ def generate_new_account_email(
         context={
             "project_name": settings.PROJECT_NAME,
             "username": username,
-            "password": password,
             "email": email_to,
-            "link": settings.FRONTEND_HOST,
+            "link": setup_link,
         },
     )
     return EmailData(html_content=html_content, subject=subject)

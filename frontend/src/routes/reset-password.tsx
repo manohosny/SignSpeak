@@ -44,11 +44,7 @@ export const Route = createFileRoute("/reset-password")({
     }
   },
   head: () => ({
-    meta: [
-      {
-        title: "Reset Password - FastAPI Template",
-      },
-    ],
+    meta: [{ title: "Reset Password - SignSpeak" }],
   }),
 })
 
@@ -104,6 +100,7 @@ function ResetPassword() {
                     <PasswordInput
                       data-testid="new-password-input"
                       placeholder="New Password"
+                      autoComplete="new-password"
                       {...field}
                     />
                   </FormControl>
@@ -122,6 +119,7 @@ function ResetPassword() {
                     <PasswordInput
                       data-testid="confirm-password-input"
                       placeholder="Confirm Password"
+                      autoComplete="new-password"
                       {...field}
                     />
                   </FormControl>

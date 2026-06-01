@@ -130,3 +130,77 @@ class TestCacheHelper:
 
     def test_cache_clear_does_not_raise(self) -> None:
         _cached_translate.cache_clear()
+
+
+class TestNoSharedTokenizerLock:
+    """Verify the singleton no longer relies on a threading.Lock for tokenizer state."""
+
+    def test_engine_has_no_lock_attribute(self) -> None:
+        engine = TranslationEngine()
+        assert not hasattr(engine, "_lock"), (
+            "TranslationEngine should not carry a threading.Lock anymore -- "
+            "tokenization is stateless via per-language tokenizer instances."
+        )
+
+    def test_engine_carries_per_language_tokenizers_field(self) -> None:
+        engine = TranslationEngine()
+        assert hasattr(engine, "_tokenizers")
+        assert isinstance(engine._tokenizers, dict)
+
+    def test_engine_carries_decode_tokenizer_field(self) -> None:
+        engine = TranslationEngine()
+        assert hasattr(engine, "_decode_tokenizer")
+
+    def test_unload_clears_tokenizers(self) -> None:
+        engine = TranslationEngine()
+        engine.load_model()
+        # In mock mode the tokenizers dict stays empty, but unload must still
+        # leave it as an empty dict and reset _decode_tokenizer to None.
+        engine.unload()
+        assert engine._tokenizers == {}
+        assert engine._decode_tokenizer is None
+
+
+@pytest.mark.skipif(
+    os.getenv("RUN_ML_INTEGRATION", "false").lower() != "true",
+    reason="Set RUN_ML_INTEGRATION=true to exercise the real mBART-50 LoRA model",
+)
+class TestConcurrencyIntegration:
+    """Interleaved en->asl and asl->en calls must not corrupt each other.
+
+    Without per-language tokenizers, a race on tokenizer.src_lang would let one
+    direction's input be tokenized with the other direction's special token.
+    Result: silently wrong output. This test reproduces the race window.
+    """
+
+    def test_interleaved_directions_do_not_cross_contaminate(self) -> None:
+        # Disable mock mode for this test.
+        os.environ["TRANSLATION_MOCK_MODE"] = "false"
+        _translation_mod.MOCK_MODE = False
+
+        engine = TranslationEngine()
+        engine.load_model()
+
+        async def run() -> list[str | None]:
+            tasks = []
+            for _ in range(8):
+                tasks.append(engine.english_to_gloss("I want to bake a cake"))
+                tasks.append(engine.gloss_to_english("IX WANT BAKE CAKE"))
+            return await asyncio.gather(*tasks)
+
+        results = asyncio.run(run())
+        en_to_asl = results[0::2]
+        asl_to_en = results[1::2]
+
+        # ASL gloss outputs should be mostly uppercase tokens; English outputs
+        # should contain lowercase letters typical of an English sentence.
+        for r in en_to_asl:
+            assert r and r.replace(" ", "").isupper(), (
+                f"Expected gloss-like (uppercase) output, got: {r!r}"
+            )
+        for r in asl_to_en:
+            assert r and any(c.islower() for c in r), (
+                f"Expected English-like (lowercase letters present) output, got: {r!r}"
+            )
+
+        engine.unload()

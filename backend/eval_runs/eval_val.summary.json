@@ -1,0 +1,19 @@
+{
+  "split": "val",
+  "keypoints_dir": "/Users/manohosny/Downloads/keypoints_150d/val",
+  "references": "/Users/manohosny/how2sign/data/val.jsonl",
+  "cslr_model": "manohonsy/how2sign-pose-cslr",
+  "translation_model": "manohonsy/asl-mbart-50-lora",
+  "n_processed_this_run": 1741,
+  "no_reference": 0,
+  "empty_cslr": 38,
+  "empty_mbart": 0,
+  "metrics": {
+    "bleu": 0.9639,
+    "chrf": 10.0899,
+    "rouge_l": 0.1145,
+    "token_f1": 0.1162,
+    "n_samples": 1741,
+    "n_empty_predictions": 38
+  }
+}

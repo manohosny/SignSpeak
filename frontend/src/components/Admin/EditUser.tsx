@@ -1,6 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod"
 import { Pencil } from "lucide-react"
-import { useForm } from "react-hook-form"
+import { type FieldValues, type UseFormReturn, useForm } from "react-hook-form"
 import type { z } from "zod"
 
 import { type UserPublic, UsersService } from "@/client"
@@ -84,7 +84,10 @@ const EditUser = ({ user, onSuccess }: EditUserProps) => {
               </DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
-              <UserFormFields form={form} passwordRequired={false} />
+              <UserFormFields
+                form={form as unknown as UseFormReturn<FieldValues>}
+                passwordRequired={false}
+              />
             </div>
 
             <DialogFooter>

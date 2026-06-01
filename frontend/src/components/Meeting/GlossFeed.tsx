@@ -46,9 +46,13 @@ const GlossBubble = memo(function GlossBubble({
 export function GlossFeed({ entries, emptyMessage }: GlossFeedProps) {
   const bottomRef = useRef<HTMLDivElement>(null)
 
+  // Re-run when a new bubble is appended. Reading `entries.length` inside
+  // the effect (rather than just listing it as a dep) keeps biome's
+  // useExhaustiveDependencies rule from flagging it as unused.
+  const count = entries.length
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" })
-  }, [])
+    if (count > 0) bottomRef.current?.scrollIntoView({ behavior: "smooth" })
+  }, [count])
 
   if (entries.length === 0) {
     return (

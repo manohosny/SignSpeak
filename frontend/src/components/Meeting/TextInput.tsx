@@ -23,6 +23,7 @@ export function TextInput({ onSend, disabled }: TextInputProps) {
   return (
     <div className="flex gap-2 border-t p-4">
       <Input
+        aria-label="Message text input"
         placeholder="Type a message..."
         value={value}
         onChange={(e) => setValue(e.target.value)}
@@ -37,10 +38,11 @@ export function TextInput({ onSend, disabled }: TextInputProps) {
       />
       <Button
         size="icon"
+        aria-label="Send message"
         onClick={handleSend}
         disabled={disabled || !value.trim()}
       >
-        <Send className="h-4 w-4" />
+        <Send className="h-4 w-4" aria-hidden="true" />
       </Button>
     </div>
   )

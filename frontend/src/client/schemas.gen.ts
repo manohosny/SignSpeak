@@ -311,7 +311,7 @@ export const MessageSchema = {
 
 export const MessageTypeSchema = {
     type: 'string',
-    enum: ['speech_transcript', 'text_message'],
+    enum: ['speech_transcript', 'text_message', 'gloss_translation', 'gloss_input'],
     title: 'MessageType'
 } as const;
 
@@ -364,11 +364,34 @@ export const PrivateUserCreateSchema = {
     title: 'PrivateUserCreate'
 } as const;
 
+export const RefreshTokenRequestSchema = {
+    properties: {
+        refresh_token: {
+            type: 'string',
+            title: 'Refresh Token'
+        }
+    },
+    type: 'object',
+    required: ['refresh_token'],
+    title: 'RefreshTokenRequest'
+} as const;
+
 export const TokenSchema = {
     properties: {
         access_token: {
             type: 'string',
             title: 'Access Token'
+        },
+        refresh_token: {
+            anyOf: [
+                {
+                    type: 'string'
+                },
+                {
+                    type: 'null'
+                }
+            ],
+            title: 'Refresh Token'
         },
         token_type: {
             type: 'string',

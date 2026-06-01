@@ -58,10 +58,15 @@ export function TranscriptPanel({
 }: TranscriptPanelProps) {
   const bottomRef = useRef<HTMLDivElement>(null)
 
-  // Scroll to bottom when a new entry is added (not on partial content updates)
+  // Scroll to bottom when a new entry is added. Keyed on the entry count so
+  // it fires for each new message but not on partial content updates to an
+  // existing entry (those change `entry.content`, not the count). Reading
+  // `count` inside the effect keeps biome's useExhaustiveDependencies rule
+  // from flagging it as unused — same pattern as GlossFeed.
+  const count = entries.length
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" })
-  }, [entries.length])
+    if (count > 0) bottomRef.current?.scrollIntoView({ behavior: "smooth" })
+  }, [count])
 
   if (entries.length === 0) {
     return (

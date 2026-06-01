@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 
 from app.api.deps import CurrentUser, SessionDep, get_current_user
 from app.models import (
@@ -15,6 +15,11 @@ from app.models import (
 from app.services import meeting_service
 
 router = APIRouter(prefix="/meetings", tags=["meetings"])
+
+# Bound list endpoints so a malicious client can't request a page of
+# millions of rows and turn the API into a memory bomb. Defaults match
+# previous behavior; the cap is what's new.
+_MAX_PAGE_LIMIT = 200
 
 
 # ============================================================
@@ -54,6 +59,7 @@ async def get_meeting(
 @router.post(
     "/{code}/join",
     response_model=MeetingPublic,
+    status_code=status.HTTP_201_CREATED,
 )
 async def join_meeting(
     code: str,
@@ -98,7 +104,7 @@ async def get_messages(
     meeting_id: uuid.UUID,
     session: SessionDep,
     current_user: CurrentUser,
-    limit: int = 50,
+    limit: int = Query(50, ge=1, le=_MAX_PAGE_LIMIT),
     before: datetime | None = None,
 ) -> MeetingMessagesPublic:
     """Get messages for a meeting. Supports cursor-based pagination.
@@ -130,8 +136,8 @@ async def get_messages(
 async def get_my_meetings(
     session: SessionDep,
     current_user: CurrentUser,
-    skip: int = 0,
-    limit: int = 20,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=_MAX_PAGE_LIMIT),
 ) -> MeetingsPublic:
     """Get the current user's meeting history."""
     meetings, count = await meeting_service.get_user_meetings(

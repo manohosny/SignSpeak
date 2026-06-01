@@ -38,11 +38,13 @@ export function MicButton({
           )}
           onClick={onToggle}
           disabled={disabled}
+          aria-label={isOn ? "Turn microphone off" : "Turn microphone on"}
+          aria-pressed={isOn}
         >
           {isOn ? (
-            <MicOff className="h-10 w-10" />
+            <MicOff className="h-10 w-10" aria-hidden="true" />
           ) : (
-            <Mic className="h-10 w-10" />
+            <Mic className="h-10 w-10" aria-hidden="true" />
           )}
         </Button>
       </div>

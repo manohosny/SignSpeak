@@ -5,17 +5,83 @@ on:
     branches:
       - master
 
+# One staging deploy at a time; never cancel a deploy that is already running.
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
 jobs:
+  # ── Build images once, off the production host, and push to GHCR. ──
+  # The immutable sha-<commit> tag is the unit of deploy and rollback.
+  build:
+    # Do not deploy in the upstream template repo, only in user projects.
+    if: github.repository_owner != 'fastapi'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Compute immutable image tag
+        id: meta
+        # GITHUB_SHA is a 40-hex commit id — not attacker-controllable.
+        run: echo "tag=sha-${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: backend/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}/backend:${{ steps.meta.outputs.tag }}
+            ghcr.io/${{ github.repository }}/backend:staging
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: frontend/Dockerfile
+          push: true
+          build-args: |
+            VITE_API_URL=https://api.${{ secrets.DOMAIN_STAGING }}
+          tags: |
+            ghcr.io/${{ github.repository }}/frontend:${{ steps.meta.outputs.tag }}
+            ghcr.io/${{ github.repository }}/frontend:staging
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ── Pull the freshly built images on the staging host and bring the stack up.
   deploy:
-    # Do not deploy in the main repository, only in user projects
+    needs: build
     if: github.repository_owner != 'fastapi'
     runs-on:
       - self-hosted
       - staging
+    permissions:
+      contents: read
+      packages: read
     env:
       ENVIRONMENT: staging
       DOMAIN: ${{ secrets.DOMAIN_STAGING }}
+      FRONTEND_HOST: https://dashboard.${{ secrets.DOMAIN_STAGING }}
       STACK_NAME: ${{ secrets.STACK_NAME_STAGING }}
+      BACKEND_CORS_ORIGINS: https://dashboard.${{ secrets.DOMAIN_STAGING }},https://api.${{ secrets.DOMAIN_STAGING }}
       SECRET_KEY: ${{ secrets.SECRET_KEY }}
       FIRST_SUPERUSER: ${{ secrets.FIRST_SUPERUSER }}
       FIRST_SUPERUSER_PASSWORD: ${{ secrets.FIRST_SUPERUSER_PASSWORD }}
@@ -23,10 +89,91 @@ jobs:
       SMTP_USER: ${{ secrets.SMTP_USER }}
       SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
       EMAILS_FROM_EMAIL: ${{ secrets.EMAILS_FROM_EMAIL }}
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
       POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
       SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+      DOCKER_IMAGE_BACKEND: ghcr.io/${{ github.repository }}/backend
+      DOCKER_IMAGE_FRONTEND: ghcr.io/${{ github.repository }}/frontend
+      TAG: ${{ needs.build.outputs.tag }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-      - run: docker compose -f compose.yml --project-name ${{ secrets.STACK_NAME_STAGING }} build
-      - run: docker compose -f compose.yml --project-name ${{ secrets.STACK_NAME_STAGING }} up -d
+      - uses: actions/checkout@v6
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate .env for Docker Compose
+        # compose.yml interpolates these and the backend reads them via
+        # `env_file: .env`. The file is never committed (see .gitignore);
+        # it is synthesized here from GitHub Secrets on every deploy.
+        run: |
+          cat > .env <<EOF
+          ENVIRONMENT=${ENVIRONMENT}
+          DOMAIN=${DOMAIN}
+          FRONTEND_HOST=${FRONTEND_HOST}
+          STACK_NAME=${STACK_NAME}
+          PROJECT_NAME=SignSpeak
+          BACKEND_CORS_ORIGINS=${BACKEND_CORS_ORIGINS}
+          SECRET_KEY=${SECRET_KEY}
+          FIRST_SUPERUSER=${FIRST_SUPERUSER}
+          FIRST_SUPERUSER_PASSWORD=${FIRST_SUPERUSER_PASSWORD}
+          SMTP_HOST=${SMTP_HOST}
+          SMTP_USER=${SMTP_USER}
+          SMTP_PASSWORD=${SMTP_PASSWORD}
+          EMAILS_FROM_EMAIL=${EMAILS_FROM_EMAIL}
+          DATABASE_URL=${DATABASE_URL}
+          POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+          SENTRY_DSN=${SENTRY_DSN}
+          DOCKER_IMAGE_BACKEND=${DOCKER_IMAGE_BACKEND}
+          DOCKER_IMAGE_FRONTEND=${DOCKER_IMAGE_FRONTEND}
+          TAG=${TAG}
+          EOF
+
+      - name: Capture currently-deployed tag (for rollback)
+        id: current
+        run: |
+          cid=$(docker compose -f compose.yml --project-name "${STACK_NAME}" ps -q backend 2>/dev/null || true)
+          prev=""
+          if [ -n "$cid" ]; then
+            image=$(docker inspect --format '{{.Config.Image}}' "$cid" 2>/dev/null || true)
+            prev="${image##*:}"
+          fi
+          echo "previous_tag=${prev}" >> "$GITHUB_OUTPUT"
+
+      - name: Pull images and deploy
+        run: |
+          docker compose -f compose.yml --project-name "${STACK_NAME}" pull
+          docker compose -f compose.yml --project-name "${STACK_NAME}" up -d
+
+      - name: Post-deploy health check
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS "https://api.${DOMAIN}/api/v1/utils/healthz/ready" >/dev/null 2>&1; then
+              echo "Backend reported ready."
+              exit 0
+            fi
+            echo "Waiting for backend readiness ($i/30)..."
+            sleep 10
+          done
+          echo "::error::Backend did not become ready within 5 minutes."
+          exit 1
+
+      - name: Roll back on failure
+        if: failure() && steps.current.outputs.previous_tag != ''
+        env:
+          PREVIOUS_TAG: ${{ steps.current.outputs.previous_tag }}
+        run: |
+          echo "::warning::Deploy failed — rolling back to ${PREVIOUS_TAG}"
+          sed -i "s|^TAG=.*|TAG=${PREVIOUS_TAG}|" .env
+          docker compose -f compose.yml --project-name "${STACK_NAME}" up -d
+
+      - name: Remove generated .env
+        # The synthesized .env holds live secrets. compose has already read
+        # them into the running containers, so the on-disk file is no longer
+        # needed — delete it so it cannot linger on a self-hosted runner.
+        # Runs last and unconditionally, after the rollback step (which needs .env).
+        if: always()
+        run: rm -f .env

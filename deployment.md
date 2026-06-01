@@ -147,24 +147,24 @@ Set the `DOMAIN`, by default `localhost` (for development), but when deploying y
 export DOMAIN=fastapi-project.example.com
 ```
 
-Set the `POSTGRES_PASSWORD` to something different than `changethis`:
+Set the `POSTGRES_PASSWORD` to a freshly generated value — never the literal
+`changethis`. In `staging`/`production` the backend refuses to boot with the
+default placeholder:
 
 ```bash
-export POSTGRES_PASSWORD="changethis"
+export POSTGRES_PASSWORD="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
 ```
 
-Set the `SECRET_KEY`, used to sign tokens:
+Set the `SECRET_KEY`, used to sign tokens, to a freshly generated value:
 
 ```bash
-export SECRET_KEY="changethis"
+export SECRET_KEY="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
 ```
 
-Note: you can use the Python command above to generate a secure secret key.
-
-Set the `FIRST_SUPER_USER_PASSWORD` to something different than `changethis`:
+Set the `FIRST_SUPERUSER_PASSWORD` to a freshly generated value:
 
 ```bash
-export FIRST_SUPERUSER_PASSWORD="changethis"
+export FIRST_SUPERUSER_PASSWORD="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
 ```
 
 Set the `BACKEND_CORS_ORIGINS` to include your domain:
@@ -301,10 +301,18 @@ The current Github Actions workflows expect these secrets:
 * `EMAILS_FROM_EMAIL`
 * `FIRST_SUPERUSER`
 * `FIRST_SUPERUSER_PASSWORD`
+* `DATABASE_URL` — full connection string for the hosted database (e.g. Supabase)
 * `POSTGRES_PASSWORD`
 * `SECRET_KEY`
+* `SMTP_HOST`
+* `SMTP_USER`
+* `SMTP_PASSWORD`
+* `SENTRY_DSN`
 * `LATEST_CHANGES`
 * `SMOKESHOW_AUTH_KEY`
+
+> `.env` is **not** committed to the repository. The deploy workflows synthesize
+> it on the runner from the secrets above on every deploy.
 
 ## GitHub Action Deployment Workflows
 
@@ -342,3 +350,64 @@ Backend API docs: `https://api.staging.fastapi-project.example.com/docs`
 Backend API base URL: `https://api.staging.fastapi-project.example.com`
 
 Adminer: `https://adminer.staging.fastapi-project.example.com`
+
+## Operations
+
+### Container registry & rollback
+
+The deploy workflows build images on a GitHub-hosted runner and push them to the
+GitHub Container Registry (`ghcr.io/<owner>/<repo>/backend` and `.../frontend`)
+before the self-hosted runner pulls and starts them. Every build is tagged with
+an immutable identifier:
+
+* **staging** — `sha-<commit>` (12-char commit SHA)
+* **production** — the sanitized Git release tag
+
+This means the deployed artifact is always a specific, reproducible image — the
+production server no longer builds code itself.
+
+Each deploy records the currently-running backend image tag first. If the
+post-deploy readiness check (`/api/v1/utils/healthz/ready`) fails, the workflow
+automatically redeploys that previous tag. To roll back manually, re-run an
+earlier deploy or pin the tag directly:
+
+```bash
+TAG=sha-<previous-commit> \
+  docker compose -f compose.yml --project-name "$STACK_NAME" up -d
+```
+
+**One-time setup:** the deploy job needs `packages: write` (build) / `packages:
+read` (deploy) permissions — these are set in the workflows. Confirm the GHCR
+packages exist and that the production host can pull them (it logs in with the
+`GITHUB_TOKEN` provided by the runner).
+
+### Logging & observability
+
+The backend emits **structured JSON logs to stdout** (configurable via
+`LOG_FORMAT` and `LOG_LEVEL`). Containers do not write log files, so production
+**must** run a log collector that ships container stdout to a central store —
+e.g. the Docker `json-file` driver scraped by Promtail/Loki, AWS CloudWatch
+Logs, Datadog, or an ELK stack. Without one, logs are lost when a container is
+recreated.
+
+Each request is tagged with an `X-Request-ID` (honored from upstream or
+generated); include that field when querying logs to trace a single request.
+
+Errors are also reported to **Sentry** when `SENTRY_DSN` is set and
+`ENVIRONMENT` is not `local`.
+
+### Scaling
+
+The backend runs a **single worker** (`fastapi run --workers 1`) on purpose: the
+ML models and WebSocket connection state are held in-process. Do not raise the
+worker count or run multiple replicas without first:
+
+1. Setting `REDIS_URL` so WebSocket/session state is shared (the app supports a
+   Redis backend), and
+2. Setting `ALLOW_MULTI_WORKER=true` — the backend otherwise refuses to start
+   multi-worker as a safety guard.
+
+Behind a load balancer, also enable sticky sessions for WebSocket upgrades.
+Until then, scale **vertically** (CPU/RAM/GPU) rather than horizontally; the
+per-service `deploy.resources.limits` in `compose.yml` (notably the backend
+`memory` cap) should be tuned to the host and measured model footprint.

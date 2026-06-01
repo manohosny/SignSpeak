@@ -1,8 +1,12 @@
+import { Volume2 } from "lucide-react"
+
 import { MicButton } from "./MicButton"
 
 interface SpeakerViewProps {
   isMicOn: boolean
   isSpeaking?: boolean
+  /** True while the partner's gloss is being spoken back as TTS. */
+  isPartnerSpeaking?: boolean
   onToggleMic: () => void
   micError?: string | null
   hasPendingAudio?: boolean
@@ -11,6 +15,7 @@ interface SpeakerViewProps {
 export function SpeakerView({
   isMicOn,
   isSpeaking,
+  isPartnerSpeaking,
   onToggleMic,
   micError,
   hasPendingAudio,
@@ -30,7 +35,28 @@ export function SpeakerView({
           Tap anywhere to enable audio
         </div>
       )}
-      <MicButton isOn={isMicOn} isSpeaking={isSpeaking} onToggle={onToggleMic} error={micError} />
+      <MicButton
+        isOn={isMicOn}
+        isSpeaking={isSpeaking}
+        onToggle={onToggleMic}
+        error={micError}
+      />
+      {/* `<output>` carries an implicit role=status, so screen-reader
+          users get the same speaking signal that sighted users see. */}
+      <output
+        aria-live="polite"
+        className="flex h-6 items-center gap-2 text-sm text-muted-foreground"
+      >
+        {isPartnerSpeaking ? (
+          <>
+            <Volume2
+              className="h-4 w-4 animate-pulse text-primary"
+              aria-hidden="true"
+            />
+            <span>Partner is speaking…</span>
+          </>
+        ) : null}
+      </output>
     </div>
   )
 }

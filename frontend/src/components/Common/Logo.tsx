@@ -1,11 +1,6 @@
 import { Link } from "@tanstack/react-router"
 
-import { useTheme } from "@/components/theme-provider"
 import { cn } from "@/lib/utils"
-import icon from "/assets/images/fastapi-icon.svg"
-import iconLight from "/assets/images/fastapi-icon-light.svg"
-import logo from "/assets/images/fastapi-logo.svg"
-import logoLight from "/assets/images/fastapi-logo-light.svg"
 
 interface LogoProps {
   variant?: "full" | "icon" | "responsive"
@@ -13,48 +8,52 @@ interface LogoProps {
   asLink?: boolean
 }
 
+/**
+ * SignSpeak wordmark.
+ *
+ * Text-based for now — design assets to replace this can be wired in by
+ * importing the SVGs and rendering an `<img>` per `variant`. The brand
+ * colour comes from the Tailwind theme so dark/light modes follow the
+ * rest of the app automatically.
+ */
 export function Logo({
   variant = "full",
   className,
   asLink = true,
 }: LogoProps) {
-  const { resolvedTheme } = useTheme()
-  const isDark = resolvedTheme === "dark"
-
-  const fullLogo = isDark ? logoLight : logo
-  const iconLogo = isDark ? iconLight : icon
-
   const content =
-    variant === "responsive" ? (
-      <>
-        <img
-          src={fullLogo}
-          alt="FastAPI"
-          className={cn(
-            "h-6 w-auto group-data-[collapsible=icon]:hidden",
-            className,
-          )}
-        />
-        <img
-          src={iconLogo}
-          alt="FastAPI"
-          className={cn(
-            "size-5 hidden group-data-[collapsible=icon]:block",
-            className,
-          )}
-        />
-      </>
+    variant === "icon" ? (
+      <span
+        role="img"
+        aria-label="SignSpeak"
+        className={cn(
+          "inline-flex size-8 items-center justify-center rounded-md bg-primary text-primary-foreground font-bold",
+          className,
+        )}
+      >
+        S
+      </span>
     ) : (
-      <img
-        src={variant === "full" ? fullLogo : iconLogo}
-        alt="FastAPI"
-        className={cn(variant === "full" ? "h-6 w-auto" : "size-5", className)}
-      />
+      // No aria-label needed: the visible text content is the brand name,
+      // so screen readers will announce it natively.
+      <span
+        className={cn(
+          "font-semibold tracking-tight text-foreground",
+          variant === "responsive" &&
+            "text-base group-data-[collapsible=icon]:hidden",
+          variant === "full" && "text-xl",
+          className,
+        )}
+      >
+        SignSpeak
+      </span>
     )
 
-  if (!asLink) {
-    return content
-  }
+  if (!asLink) return content
 
-  return <Link to="/">{content}</Link>
+  return (
+    <Link to="/" className="inline-flex items-center">
+      {content}
+    </Link>
+  )
 }

@@ -1,290 +1,191 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import type { MeetingPublic } from "@/client"
-import { MeetingsService } from "@/client"
-import type {
-  GlossEntry,
-  MeetingState,
-  TranscriptEntry,
-  WsServerMessage,
-} from "@/lib/meeting-types"
-import { useAudioPlayer } from "./useAudioPlayer"
-import { useAudioRecorder } from "./useAudioRecorder"
+
+import type { MeetingState, WsServerMessage } from "@/lib/meeting-types"
+
+import {
+  useMeetingAudioPlayer,
+  useMeetingAudioRecorder,
+} from "./useMeetingAudioIO"
+import { useMeetingFetch } from "./useMeetingFetch"
+import { useMeetingMessages } from "./useMeetingMessages"
 import { useWebSocket } from "./useWebSocket"
 
+/**
+ * Orchestrates a meeting session by composing four focused hooks:
+ *
+ *   1. useMeetingFetch         — REST: resolve the meeting code
+ *   2. useMeetingMessages      — transcript / gloss feeds + non-fatal errors
+ *   3. useMeetingAudioPlayer   — TTS playback (declared before WS)
+ *   4. useWebSocket            — connection lifecycle + reconnect
+ *   5. useMeetingAudioRecorder — mic capture (declared after WS)
+ *
+ * This hook is intentionally thin: its job is the meeting-state machine
+ * (connecting → waiting → active → ended/error) and routing WS messages
+ * to whichever sub-hook owns them.
+ */
 export function useMeeting(meetingCode: string) {
-  // ── Core state ──
+  // ── Meeting-record fetch ──
+  const {
+    meeting,
+    meetingId,
+    fetchError,
+    alreadyEnded,
+    retry: refetch,
+  } = useMeetingFetch(meetingCode)
+
+  // ── Top-level meeting state ──
   const [meetingState, setMeetingState] = useState<MeetingState>("connecting")
-  const [meeting, setMeeting] = useState<MeetingPublic | null>(null)
   const [role, setRole] = useState<"speaker" | "reader" | null>(null)
   const [userId, setUserId] = useState<string | null>(null)
-  const [transcript, setTranscript] = useState<TranscriptEntry[]>([])
-  const [glosses, setGlosses] = useState<GlossEntry[]>([])
   const [partnerJoined, setPartnerJoined] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [isMicOn, setIsMicOn] = useState(false)
+  const [authError, setAuthError] = useState<string | null>(null)
+  // True between `tts_start` and `tts_end` — drives the partner-speaking dot.
+  const [isPartnerSpeaking, setIsPartnerSpeaking] = useState(false)
 
-  // Stable refs (used in callbacks without re-triggering effects)
-  const roleRef = useRef(role)
-  roleRef.current = role
+  // Apply fetch outcomes to the state machine.
+  useEffect(() => {
+    if (fetchError) {
+      setMeetingState("error")
+      setAuthError(fetchError)
+    } else if (alreadyEnded) {
+      setMeetingState("ended")
+    }
+  }, [fetchError, alreadyEnded])
+
+  // Recover from the auth_ok-before-meeting-loaded race: if the WS finished
+  // authenticating before the REST fetch resolved, we'd have dropped into
+  // "waiting" even for a meeting whose status is already "active". Once the
+  // record arrives, promote the state.
+  useEffect(() => {
+    if (meeting?.status === "active" && meetingState === "waiting") {
+      setMeetingState("active")
+    }
+  }, [meeting, meetingState])
+
+  // ── Message-list state (transcripts, glosses, non-fatal errors) ──
+  const messages = useMeetingMessages(role)
+
+  // ── Audio player (must be before useWebSocket — onBinaryMessage uses playAudio) ──
+  const player = useMeetingAudioPlayer()
+
+  // ── WS connection ──
+  // `meeting` is read inside the auth_ok branch — keep it in a ref so the
+  // callback identity stays stable across re-renders (avoids re-arming the
+  // WS effect just because the meeting record just arrived).
   const meetingRef = useRef(meeting)
   meetingRef.current = meeting
 
-  // ── Step 1: Fetch meeting by code → get UUID ──
-  const [meetingId, setMeetingId] = useState<string | null>(null)
-  const fetchedRef = useRef(false)
+  const handleMessage = useCallback(
+    (msg: WsServerMessage) => {
+      // Try the message-list reducer first; if it doesn't handle the
+      // event, fall through to the lifecycle/auth state machine.
+      if (messages.apply(msg)) return
 
-  useEffect(() => {
-    if (!meetingCode || fetchedRef.current) return
-    fetchedRef.current = true
-
-    // Join the meeting first (creates participant record),
-    // then use the returned meeting data to connect via WS.
-    // joinMeeting is idempotent for the host (backend rejects
-    // with 400 "already in meeting", so we fall back to GET).
-    MeetingsService.joinMeeting({ code: meetingCode })
-      .then((m) => {
-        setMeeting(m)
-        setMeetingId(m.id)
-        if (m.status === "ended") {
-          setMeetingState("ended")
-        }
-      })
-      .catch(async () => {
-        // Host is already a participant — joinMeeting returns 400.
-        // Fall back to fetching the meeting details.
-        try {
-          const m = await MeetingsService.getMeeting({ code: meetingCode })
-          setMeeting(m)
-          setMeetingId(m.id)
-          if (m.status === "ended") {
-            setMeetingState("ended")
+      switch (msg.type) {
+        case "auth_ok":
+          setRole(msg.role)
+          setUserId(msg.user_id)
+          if (meetingRef.current?.status === "active") {
+            setMeetingState("active")
+            setPartnerJoined(true)
+          } else {
+            setMeetingState("waiting")
           }
-        } catch (err: unknown) {
+          break
+
+        case "auth_error":
           setMeetingState("error")
-          const detail =
-            err && typeof err === "object" && "body" in err
-              ? (err as { body?: { detail?: string } }).body?.detail
-              : undefined
-          setError(detail || "Meeting not found")
-        }
-      })
-  }, [meetingCode])
+          setAuthError(msg.message)
+          break
 
-  // ── WS message handler ──
-  const handleMessage = useCallback((msg: WsServerMessage) => {
-    switch (msg.type) {
-      case "auth_ok":
-        setRole(msg.role)
-        setUserId(msg.user_id)
-        // If the meeting is already active (partner joined via REST before
-        // we connected WS), go straight to active instead of waiting.
-        if (meetingRef.current?.status === "active") {
-          setMeetingState("active")
+        case "user_joined":
           setPartnerJoined(true)
-        } else {
-          setMeetingState("waiting")
-        }
-        break
+          setMeetingState("active")
+          break
 
-      case "auth_error":
-        setMeetingState("error")
-        setError(msg.message)
-        break
+        case "user_left":
+          setPartnerJoined(false)
+          break
 
-      case "user_joined":
-        setPartnerJoined(true)
-        setMeetingState("active")
-        break
+        case "meeting_ended":
+          setMeetingState("ended")
+          break
 
-      case "user_left":
-        setPartnerJoined(false)
-        break
+        case "tts_start":
+          setIsPartnerSpeaking(true)
+          break
 
-      case "transcript": {
-        const entryId = msg.utterance_id || `t-${Date.now()}-${Math.random()}`
-        setTranscript((prev) => {
-          // If this transcript has an utterance_id and a partial with the
-          // same ID already exists, replace it instead of appending.
-          if (msg.utterance_id) {
-            const idx = prev.findIndex((e) => e.id === entryId)
-            if (idx !== -1) {
-              const updated = [...prev]
-              updated[idx] = {
-                ...updated[idx],
-                content: msg.text,
-                timestamp: msg.timestamp,
-                isPartial: msg.is_partial,
-              }
-              return updated
-            }
-          }
-          return [
-            ...prev,
-            {
-              id: entryId,
-              type: "transcript",
-              content: msg.text,
-              senderId: msg.sender_id,
-              senderRole: "speaker",
-              timestamp: msg.timestamp,
-              isPartial: msg.is_partial,
-            },
-          ]
-        })
-        break
+        case "tts_end":
+          setIsPartnerSpeaking(false)
+          break
       }
-
-      case "text_message":
-        setTranscript((prev) => [
-          ...prev,
-          {
-            id: `m-${Date.now()}-${Math.random()}`,
-            type: "text_message",
-            content: msg.content,
-            senderId: msg.sender_id,
-            senderRole: roleRef.current === "speaker" ? "reader" : "speaker",
-            timestamp: msg.timestamp,
-          },
-        ])
-        break
-
-      case "meeting_ended":
-        setMeetingState("ended")
-        break
-
-      case "error":
-        // Non-fatal: show error but don't change state
-        setError(msg.message)
-        break
-
-      case "tts_start":
-        // Future: set speaking indicator state
-        break
-
-      case "tts_end":
-        // Future: clear speaking indicator state
-        break
-
-      case "gloss":
-        setGlosses((prev) => [
-          ...prev,
-          {
-            id: msg.utterance_id || `g-${Date.now()}-${Math.random()}`,
-            type: "gloss",
-            text: msg.text,
-            utterance_id: msg.utterance_id,
-            timestamp: msg.timestamp,
-            isOwn: false,
-          },
-        ])
-        break
-
-      case "gloss_message":
-        setGlosses((prev) => [
-          ...prev,
-          {
-            id: `gm-${Date.now()}-${Math.random()}`,
-            type: "gloss_message",
-            text: msg.content,
-            timestamp: msg.timestamp,
-            isOwn: true,
-          },
-        ])
-        break
-
-      case "gloss_error":
-        // Non-fatal: show an error notification
-        setError(msg.message)
-        break
-    }
-  }, [])
-
-  // ── Audio player (Speaker receives TTS WAV) ──
-  const { playAudio, stopAudio, unlockAudio, hasPendingAudio } =
-    useAudioPlayer()
-
-  const handleBinaryMessage = useCallback(
-    (data: ArrayBuffer) => {
-      // Binary frames are WAV audio from TTS (sent to speaker)
-      playAudio(data)
     },
-    [playAudio],
+    [messages.apply],
   )
 
   const handleDisconnect = useCallback(() => {
-    if (meetingState !== "ended") {
-      setMeetingState("error")
-      setError("Disconnected from meeting")
-    }
-  }, [meetingState])
+    // Read latest state via setter without producing side effects inside
+    // the updater — React 19 strict mode runs updaters twice in dev.
+    setMeetingState((prev) => (prev === "ended" ? prev : "error"))
+    setAuthError((prev) => prev ?? "Disconnected from meeting")
+  }, [])
 
-  // ── Step 2: WebSocket connection ──
-  const token = localStorage.getItem("access_token") || ""
   const wsEnabled = !!meetingId && meetingState !== "ended"
 
   const {
     sendJson,
     sendBinary,
     state: wsState,
+    retry: retryWs,
   } = useWebSocket({
     meetingId: meetingId || "",
-    token,
     onMessage: handleMessage,
-    onBinaryMessage: handleBinaryMessage,
+    onBinaryMessage: player.playAudio,
     onDisconnect: handleDisconnect,
     enabled: wsEnabled,
   })
 
-  // Update meeting state based on WS connection state
+  // Reflect WS-level transitions into the meeting state machine. A socket
+  // that is re-authenticating or reconnecting does NOT mean the meeting
+  // left "active" — only the transport hiccupped. Keep an already-active
+  // meeting on screen so ReaderView/CwasaAvatar stays mounted instead of
+  // being destroyed and re-initialised on every brief reconnect; the
+  // reconnect runs in the background, and a genuinely exhausted reconnect
+  // still surfaces via onDisconnect → "error".
   useEffect(() => {
     if (wsState === "authenticating") {
-      setMeetingState("authenticating")
+      setMeetingState((prev) => (prev === "active" ? prev : "authenticating"))
     } else if (wsState === "reconnecting") {
-      setMeetingState("connecting")
+      setMeetingState((prev) => (prev === "active" ? prev : "connecting"))
     }
   }, [wsState])
 
-  // ── Audio recorder (Speaker sends PCM16 chunks) ──
-  const handleAudioChunk = useCallback(
-    (pcm16: ArrayBuffer) => {
-      sendBinary(pcm16)
-    },
-    [sendBinary],
-  )
-
-  const handleVadChange = useCallback(
-    (speaking: boolean) => {
-      if (!speaking) {
-        // Speaker stopped talking — tell the backend to flush STT buffer
-        sendJson({ type: "control", action: "utterance_end" })
-      }
-    },
-    [sendJson],
-  )
-
-  const { isRecording, isSpeaking, startRecording, stopRecording } =
-    useAudioRecorder({
-      onAudioChunk: handleAudioChunk,
-      onVadChange: handleVadChange,
-      enabled: role === "speaker" && meetingState === "active",
-    })
+  // ── Audio recorder (depends on the WebSocket's send fns) ──
+  const recorder = useMeetingAudioRecorder({
+    role,
+    isActive: meetingState === "active",
+    isTerminated: meetingState === "ended" || meetingState === "error",
+    sendBinary,
+    sendJson,
+    unlockAudio: player.unlockAudio,
+    stopAudio: player.stopAudio,
+  })
 
   // ── Actions ──
   const sendTextMessage = useCallback(
     (content: string) => {
-      if (content.trim()) {
-        sendJson({ type: "text_message", content: content.trim() })
-      }
+      const trimmed = content.trim()
+      if (trimmed) sendJson({ type: "text_message", content: trimmed })
     },
     [sendJson],
   )
 
   const sendGlossMessage = useCallback(
     (content: string) => {
-      const trimmed = content.trim().toUpperCase()
-      if (trimmed) {
-        sendJson({ type: "gloss_message", content: trimmed })
-      }
+      // GlossInput already uppercases on each keystroke — trust the caller
+      // to deliver normalised gloss tokens here.
+      const trimmed = content.trim()
+      if (trimmed) sendJson({ type: "gloss_message", content: trimmed })
     },
     [sendJson],
   )
@@ -292,46 +193,36 @@ export function useMeeting(meetingCode: string) {
   const endMeeting = useCallback(() => {
     sendJson({ type: "end_meeting" })
     setMeetingState("ended")
-    stopRecording()
-    stopAudio()
-  }, [sendJson, stopRecording, stopAudio])
+    recorder.stopAll()
+  }, [sendJson, recorder])
 
-  const toggleMic = useCallback(() => {
-    // Unlock AudioContext during this user gesture so TTS playback works
-    unlockAudio()
-    if (isRecording) {
-      stopRecording()
-      setIsMicOn(false)
-    } else {
-      startRecording()
-      setIsMicOn(true)
-    }
-  }, [isRecording, startRecording, stopRecording, unlockAudio])
-
-  // Auto-stop mic when meeting ends
-  useEffect(() => {
-    if (meetingState === "ended" || meetingState === "error") {
-      stopRecording()
-      stopAudio()
-    }
-  }, [meetingState, stopRecording, stopAudio])
+  // Re-fetch the meeting record + force the WS effect to re-arm.
+  const retry = useCallback(() => {
+    setAuthError(null)
+    setMeetingState("connecting")
+    refetch()
+    retryWs()
+  }, [refetch, retryWs])
 
   return {
     meetingState,
     meeting,
     role,
     userId,
-    transcript,
-    glosses,
+    transcript: messages.transcript,
+    glosses: messages.glosses,
     partnerJoined,
-    error,
+    error: authError ?? messages.error,
     sendTextMessage,
     sendGlossMessage,
     endMeeting,
-    toggleMic,
-    isMicOn,
-    isSpeaking,
-    unlockAudio,
-    hasPendingAudio,
+    toggleMic: recorder.toggleMic,
+    isMicOn: recorder.isMicOn,
+    isSpeaking: recorder.isSpeaking,
+    isPartnerSpeaking,
+    micError: recorder.micError,
+    unlockAudio: player.unlockAudio,
+    hasPendingAudio: player.hasPendingAudio,
+    retry,
   }
 }

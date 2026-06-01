@@ -8,16 +8,22 @@ Key implementation details:
 1. MBart50TokenizerFast requires a custom lang code registration for asl_GL
 2. fp16 on CUDA for memory efficiency; no fp16 on MPS (can be unstable)
 3. LRU cache (512 entries) avoids repeated inference for identical inputs
-4. threading.Lock guards mutable tokenizer state (src_lang) shared across threads
+4. Pre-built per-language tokenizers eliminate the need for a thread lock on
+   shared tokenizer state (one tokenizer per src_lang, no mutation at inference).
+   The shared model itself is NOT thread-safe, so model.generate() is guarded
+   by a threading.Lock — inference runs in the asyncio.to_thread pool and
+   concurrent translations would otherwise interleave on the same model.
 5. CPU auto-downgrades num_beams to 1 (greedy) to keep latency acceptable
 """
 
 import asyncio
+import copy
 import functools
 import logging
 import os
 import threading
 import time
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -62,12 +68,15 @@ class TranslationEngine:
 
     def __init__(self) -> None:
         self._model = None
-        self._tokenizer = None
+        self._tokenizers: dict[str, Any] = {}
+        self._decode_tokenizer: Any = None
         self._device: str = "cpu"
         self._num_beams: int = 4
         self._max_length: int = 128
         self._loaded = False
-        self._lock = threading.Lock()
+        # Serializes model.generate() across asyncio.to_thread worker threads —
+        # the underlying PyTorch model is shared and not thread-safe.
+        self._inference_lock = threading.Lock()
 
     def load_model(
         self,
@@ -93,15 +102,28 @@ class TranslationEngine:
         # Load tokenizer — extra_special_tokens={} overrides the list stored in
         # tokenizer_config.json (saved with older transformers) which newer
         # transformers incorrectly expects to be a dict and calls .keys() on it.
-        self._tokenizer = MBart50TokenizerFast.from_pretrained(
+        base_tokenizer = MBart50TokenizerFast.from_pretrained(
             model_name, extra_special_tokens={}
         )
 
         # Register asl_GL language code if not already present.
         # id_to_lang_code only exists on MBart50Tokenizer (slow), not the fast variant.
-        if "asl_GL" not in self._tokenizer.lang_code_to_id:
-            asl_id = self._tokenizer.convert_tokens_to_ids("asl_GL")
-            self._tokenizer.lang_code_to_id["asl_GL"] = asl_id
+        if "asl_GL" not in base_tokenizer.lang_code_to_id:
+            asl_id = base_tokenizer.convert_tokens_to_ids("asl_GL")
+            base_tokenizer.lang_code_to_id["asl_GL"] = asl_id
+
+        # Pre-build one tokenizer per source language so inference is stateless
+        # and no lock is needed around the mutable tokenizer.src_lang setter.
+        en_tokenizer = copy.deepcopy(base_tokenizer)
+        en_tokenizer.src_lang = EN_LANG_CODE
+        asl_tokenizer = copy.deepcopy(base_tokenizer)
+        asl_tokenizer.src_lang = ASL_LANG_CODE
+        self._tokenizers = {
+            EN_LANG_CODE: en_tokenizer,
+            ASL_LANG_CODE: asl_tokenizer,
+        }
+        # decode() with skip_special_tokens is language-agnostic; pin one for clarity.
+        self._decode_tokenizer = en_tokenizer
 
         # Load model
         self._model = MBartForConditionalGeneration.from_pretrained(model_name)
@@ -188,28 +210,31 @@ class TranslationEngine:
     def _translate_sync(self, text: str, src_lang: str, tgt_lang: str) -> str | None:
         """Synchronous inference -- called via asyncio.to_thread (or cached wrapper).
 
-        Uses a threading.Lock around tokenizer state mutation because
-        MBart50TokenizerFast is not thread-safe (src_lang is mutable state).
+        Tokenization is stateless: each src_lang has its own pre-configured
+        tokenizer instance, so no lock is required.
         torch.no_grad() is used (not inference_mode) -- inference_mode
         interferes with beam search in mBART.
         """
         import torch
 
         try:
-            with self._lock:
-                self._tokenizer.src_lang = src_lang
-                inputs = self._tokenizer(
-                    text,
-                    return_tensors="pt",
-                    max_length=self._max_length,
-                    truncation=True,
-                )
-                forced_bos = self._tokenizer.convert_tokens_to_ids(tgt_lang)
+            tokenizer = self._tokenizers[src_lang]
+            inputs = tokenizer(
+                text,
+                return_tensors="pt",
+                max_length=self._max_length,
+                truncation=True,
+            )
+            forced_bos = tokenizer.convert_tokens_to_ids(tgt_lang)
 
-            # Move inputs to device (outside lock -- tensors are independent copies)
+            # Move inputs to device.
             inputs = {k: v.to(self._device) for k, v in inputs.items()}
 
-            with torch.no_grad():
+            # The model is shared across worker threads and is not
+            # thread-safe — serialize the actual generate() call. Tokenize
+            # (above) and decode (below) are stateless / read-only and stay
+            # outside the lock.
+            with self._inference_lock, torch.no_grad():
                 output = self._model.generate(
                     **inputs,
                     forced_bos_token_id=forced_bos,
@@ -217,7 +242,9 @@ class TranslationEngine:
                     max_length=self._max_length,
                 )
 
-            result = self._tokenizer.decode(output[0], skip_special_tokens=True).strip()
+            result = self._decode_tokenizer.decode(
+                output[0], skip_special_tokens=True
+            ).strip()
             return result if result else None
 
         except Exception as e:
@@ -238,9 +265,8 @@ class TranslationEngine:
         if self._model is not None:
             del self._model
             self._model = None
-        if self._tokenizer is not None:
-            del self._tokenizer
-            self._tokenizer = None
+        self._tokenizers.clear()
+        self._decode_tokenizer = None
         self._loaded = False
 
         import torch

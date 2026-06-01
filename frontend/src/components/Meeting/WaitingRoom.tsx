@@ -21,11 +21,16 @@ export function WaitingRoom({ code }: WaitingRoomProps) {
 
       <div className="flex items-center gap-3 rounded-xl border bg-muted/50 px-8 py-4">
         <code className="text-4xl font-bold tracking-widest">{code}</code>
-        <Button variant="outline" size="icon" onClick={() => copy(code)}>
+        <Button
+          variant="outline"
+          size="icon"
+          aria-label={copiedText ? "Meeting code copied" : "Copy meeting code"}
+          onClick={() => copy(code)}
+        >
           {copiedText ? (
-            <Check className="h-5 w-5 text-green-500" />
+            <Check className="h-5 w-5 text-green-500" aria-hidden="true" />
           ) : (
-            <Copy className="h-5 w-5" />
+            <Copy className="h-5 w-5" aria-hidden="true" />
           )}
         </Button>
       </div>

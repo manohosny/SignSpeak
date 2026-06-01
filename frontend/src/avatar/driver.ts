@@ -1,10 +1,16 @@
+// Hook events carry the event type, an optional payload, and the avatar index.
+type CwasaHookEvent = { typ: string; msg: unknown; av: string | number }
+
 interface CwasaApi {
   init: (opts?: unknown) => void
-  playSiGMLText: (sigml: string) => Promise<void> | void
+  // playSiGMLText schedules playback synchronously and returns a status
+  // string — NOT a Promise that resolves on animation end. Completion is
+  // reported via the `animidle` hook instead (see onAnimIdle).
+  playSiGMLText: (sigml: string) => unknown
   stopSiGML: () => void
   addHook: (
     event: string,
-    fn: (evt: { msg: unknown; av: string }) => void,
+    fn: (evt: CwasaHookEvent) => void,
     av?: number | "*",
   ) => void
 }
@@ -35,30 +41,41 @@ export function loadCwasaRuntime(): Promise<void> {
   }
 
   loadPromise = new Promise<void>((resolve, reject) => {
+    // Attach load/error listeners that detach themselves once they fire, so a
+    // mounted/unmounted avatar never accumulates stale listeners on the tag.
+    const attach = (script: HTMLScriptElement) => {
+      const cleanup = () => {
+        script.removeEventListener("load", onLoad)
+        script.removeEventListener("error", onError)
+      }
+      const onLoad = () => {
+        cleanup()
+        if (window.CWASA) {
+          resolve()
+        } else {
+          reject(new Error("CWASA script loaded but window.CWASA missing"))
+        }
+      }
+      const onError = () => {
+        cleanup()
+        reject(new Error("Failed to load CWASA runtime"))
+      }
+      script.addEventListener("load", onLoad)
+      script.addEventListener("error", onError)
+    }
+
     const existing = document.querySelector<HTMLScriptElement>(
       `script[src="${CWASA_JS_SRC}"]`,
     )
     if (existing) {
-      existing.addEventListener("load", () => resolve())
-      existing.addEventListener("error", () =>
-        reject(new Error("Failed to load CWASA runtime")),
-      )
+      attach(existing)
       return
     }
 
     const script = document.createElement("script")
     script.src = CWASA_JS_SRC
     script.async = true
-    script.addEventListener("load", () => {
-      if (window.CWASA) {
-        resolve()
-      } else {
-        reject(new Error("CWASA script loaded but window.CWASA missing"))
-      }
-    })
-    script.addEventListener("error", () =>
-      reject(new Error("Failed to load CWASA runtime")),
-    )
+    attach(script)
     document.head.appendChild(script)
   })
 
@@ -74,16 +91,27 @@ function getCwasa(): CwasaApi {
 }
 
 export function initAvatar(): void {
+  // CWASA exposes no clean teardown/re-init, so this stays true for the page
+  // lifetime: a remounted avatar reuses the already-initialised runtime.
   if (initialised) return
   getCwasa().init()
   initialised = true
 }
 
-export async function playSigml(sigml: string): Promise<void> {
-  const result = getCwasa().playSiGMLText(sigml)
-  if (result instanceof Promise) {
-    await result
-  }
+// Register a listener for the avatar finishing an animation. CWASA fires
+// `animidle` exactly once per playSiGMLText call — including the
+// no-valid-signs path — which makes it the queue's completion signal. CWASA
+// has no public delHook, so callers register exactly once. Returns false if
+// the runtime is not loaded yet.
+export function onAnimIdle(fn: () => void): boolean {
+  const cw = window.CWASA
+  if (!cw) return false
+  cw.addHook("animidle", () => fn(), "*")
+  return true
+}
+
+export function playSigml(sigml: string): void {
+  getCwasa().playSiGMLText(sigml)
 }
 
 export function stop(): void {
