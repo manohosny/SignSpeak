@@ -1,0 +1,31 @@
+# CPU-only override — the free-trial account cannot allocate a GPU
+# (GPUS_ALL_REGIONS quota is locked at 0 and raising it requires upgrading to a
+# paid account). The ML code auto-falls back to CPU; this override removes the
+# NVIDIA device request so `docker compose up` does not fail looking for a GPU,
+# and sizes the backend for a c2-standard-16 (16 vCPU / 64 GB) host.
+#
+# Usage on the VM:
+#   docker compose -f compose.yml -f deploy/gcp/compose.cpu.yml up -d
+services:
+  backend:
+    environment:
+      # Force CPU explicitly (auto would also pick CPU, but be unambiguous).
+      - TRANSLATION_DEVICE=cpu
+      - SIGN_TO_TEXT_DEVICE=cpu
+      # Greedy decoding only — beam search on CPU is far too slow for real-time.
+      - TRANSLATION_NUM_BEAMS=1
+      # The vendored Uni-Sign repo (config.py/models.py) is not baked into the
+      # backend image (Dockerfile copies only backend/). Bind-mount it and point
+      # the loader at the absolute mount path so `import config` resolves.
+      - SIGN_TO_TEXT_REPO_DIR=/app/uni-sign
+    volumes:
+      - ./third_party/Uni-Sign:/app/uni-sign:ro
+    deploy:
+      resources:
+        limits:
+          cpus: '16'
+          memory: 40G
+        reservations:
+          memory: 4G
+          # Replaces the base GPU device reservation with an empty list.
+          devices: []

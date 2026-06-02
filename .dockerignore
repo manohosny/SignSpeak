@@ -46,6 +46,12 @@ frontend/dist-ssr
 **/*.pth
 **/*.safetensors
 
+# Exception: the browser-side pose models (YOLOX + RTMW) are static frontend
+# assets served to the client (not runtime volumes), so they MUST be included
+# in the frontend build context. Without this, dist/models/rtmw/ ships empty
+# and onnxruntime-web fails with "protobuf parsing failed".
+!frontend/public/models/**
+
 # Editor / OS cruft
 **/.vscode
 **/.idea

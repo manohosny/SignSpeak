@@ -1,0 +1,31 @@
+# Caddy reverse proxy — automatic HTTPS, no Docker API dependency.
+# Run on the VM after the app stack is up:
+#   docker compose -f deploy/gcp/docker-compose.caddy.yml -p caddy up -d
+# Reaches the app containers by name on the shared external traefik-public network.
+services:
+  caddy:
+    image: caddy:2
+    restart: always
+    # Host uses systemd-resolved (127.0.0.53), unreachable from the container.
+    # On a user-defined network these set the embedded resolver's upstreams for
+    # external lookups (ACME); container-name resolution via 127.0.0.11 is kept.
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      - traefik-public
+
+volumes:
+  caddy-data:
+  caddy-config:
+
+networks:
+  traefik-public:
+    external: true

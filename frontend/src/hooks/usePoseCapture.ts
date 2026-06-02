@@ -21,7 +21,9 @@ type WorkerMsg =
   | { type: "no_person" }
   | { type: "error"; message: string }
 
-const MODEL_BASE = "/models/rtmw"
+// Defaults to same-origin assets; set VITE_MODEL_BASE (build-time) to a CDN /
+// bucket URL to offload the ~71 MB pose models from the app server.
+const MODEL_BASE = import.meta.env.VITE_MODEL_BASE || "/models/rtmw"
 
 /**
  * Two independent lifecycles:

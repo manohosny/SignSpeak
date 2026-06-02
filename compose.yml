@@ -80,26 +80,33 @@ services:
       - TORCH_HOME=/home/appuser/.cache/torch
       - KOKORO_MODEL_PATH=/app/backend/models/kokoro-v1.0.onnx
       - KOKORO_VOICES_PATH=/app/backend/models/voices-v1.0.bin
+      # Uni-Sign checkpoint + mt5 snapshot live on a dedicated persistent
+      # volume (the default ~/.signspeak path is not otherwise mounted, so a
+      # fresh cloud VM would have no checkpoint and sign-to-text would fail).
+      - SIGN_TO_TEXT_CHECKPOINT=/home/appuser/.signspeak/models/uni-sign/how2sign_pose_only_slt.pth
+      - SIGN_TO_TEXT_MT5_DIR=/home/appuser/.signspeak/models/mt5-base
 
     volumes:
       - model-cache-hf:/home/appuser/.cache/huggingface
       - model-cache-torch:/home/appuser/.cache/torch
       - kokoro-models:/app/backend/models
+      - signspeak-models:/home/appuser/.signspeak/models
 
     deploy:
       resources:
         # NOTE: `memory` must be tuned to the real model footprint — set too
         # low, the ML container is OOM-killed mid-inference; too high, it can
         # still starve the host. Measure with `docker stats` under load.
+        # 26G holds all four models (Parakeet + Uni-Sign + mBART + Kokoro) plus
+        # CPU-side staging during load on a g2-standard-8 (32G) host.
         limits:
-          cpus: '4'
-          memory: 8G
+          cpus: '8'
+          memory: 26G
         reservations:
           memory: 2G
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
+          # CPU-only base (the deployed env has no GPU). GPU hosts: add a
+          # `devices` reservation here (driver: nvidia, count: 1,
+          # capabilities: [gpu]) so the ML models use CUDA.
 
     healthcheck:
       # Liveness probe — does not gate on ML model load. ML loads can
@@ -159,6 +166,8 @@ services:
       dockerfile: frontend/Dockerfile
       args:
         - VITE_API_URL=https://api.${DOMAIN?Variable not set}
+        # Optional CDN/bucket base for the browser pose models; empty -> bundled.
+        - VITE_MODEL_BASE=${VITE_MODEL_BASE-}
     labels:
       - traefik.enable=true
       - traefik.docker.network=traefik-public
@@ -181,6 +190,7 @@ volumes:
   model-cache-hf:
   model-cache-torch:
   kokoro-models:
+  signspeak-models:
 
 networks:
   traefik-public:

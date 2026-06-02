@@ -1,0 +1,43 @@
+# Traefik reverse proxy with automatic Let's Encrypt TLS.
+# Run on the VM BEFORE the app stack:
+#   export TRAEFIK_ACME_EMAIL=you@example.com
+#   docker compose -f deploy/gcp/docker-compose.traefik.yml -p traefik up -d
+#
+# Provides the `http`/`https` entrypoints and the `le` cert resolver that the
+# app's compose.yml routers reference, on the shared external traefik-public network.
+services:
+  traefik:
+    # 3.1 hardcodes Docker API 1.24 (rejected by Docker Engine 29, min 1.40).
+    # Newer Traefik negotiates the API version with the daemon.
+    image: traefik:v3.5
+    restart: always
+    environment:
+      # Docker Engine 29 requires API >= 1.40; Traefik's client otherwise
+      # falls back to 1.24 and can't read the socket. Pin a supported version.
+      - DOCKER_API_VERSION=1.44
+    ports:
+      - "80:80"
+      - "443:443"
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.docker.constraints=Label(`traefik.constraint-label`, `traefik-public`)
+      - --entrypoints.http.address=:80
+      - --entrypoints.https.address=:443
+      # HTTP-01 challenge works for sslip.io subdomains and real domains alike.
+      - --certificatesresolvers.le.acme.email=${TRAEFIK_ACME_EMAIL?Set TRAEFIK_ACME_EMAIL}
+      - --certificatesresolvers.le.acme.storage=/certificates/acme.json
+      - --certificatesresolvers.le.acme.httpchallenge.entrypoint=http
+      - --log.level=INFO
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik-certificates:/certificates
+    networks:
+      - traefik-public
+
+volumes:
+  traefik-certificates:
+
+networks:
+  traefik-public:
+    external: true

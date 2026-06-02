@@ -1,0 +1,17 @@
+# Caddy reverse proxy with automatic Let's Encrypt TLS.
+# Replaces Traefik (whose Docker-socket provider is incompatible with Docker
+# Engine 29 — it pins API 1.24, below the daemon's 1.40 minimum). Caddy does
+# not use the Docker API at all; it reaches the app containers by name over the
+# shared `traefik-public` network and preserves the original Host header (which
+# the backend's TrustedHostMiddleware requires).
+{
+	email mohamedqotb00@gmail.com
+}
+
+api.34.10.142.210.sslip.io {
+	reverse_proxy signspeak-backend-1:8000
+}
+
+dashboard.34.10.142.210.sslip.io {
+	reverse_proxy signspeak-frontend-1:8080
+}

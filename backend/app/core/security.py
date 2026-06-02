@@ -149,6 +149,7 @@ def set_auth_cookies(
     """
     secure = _is_secure_cookie()
     samesite = _samesite_policy()
+    domain = settings.COOKIE_DOMAIN or None
 
     if access_max_age is None:
         access_max_age = settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
@@ -162,6 +163,7 @@ def set_auth_cookies(
         httponly=True,
         secure=secure,
         samesite=samesite,
+        domain=domain,
         path="/",
     )
     response.set_cookie(
@@ -171,6 +173,7 @@ def set_auth_cookies(
         httponly=True,
         secure=secure,
         samesite=samesite,
+        domain=domain,
         path=_REFRESH_COOKIE_PATH,
     )
     # Session-marker mirrors the refresh token's lifetime: while it's set,
@@ -182,15 +185,19 @@ def set_auth_cookies(
         httponly=False,
         secure=secure,
         samesite=samesite,
+        domain=domain,
         path="/",
     )
 
 
 def clear_auth_cookies(response: Response) -> None:
     """Reset all three auth cookies. Used on logout."""
-    response.delete_cookie(key=ACCESS_TOKEN_COOKIE, path="/")
-    response.delete_cookie(key=REFRESH_TOKEN_COOKIE, path=_REFRESH_COOKIE_PATH)
-    response.delete_cookie(key=SESSION_MARKER_COOKIE, path="/")
+    domain = settings.COOKIE_DOMAIN or None
+    response.delete_cookie(key=ACCESS_TOKEN_COOKIE, path="/", domain=domain)
+    response.delete_cookie(
+        key=REFRESH_TOKEN_COOKIE, path=_REFRESH_COOKIE_PATH, domain=domain
+    )
+    response.delete_cookie(key=SESSION_MARKER_COOKIE, path="/", domain=domain)
 
 
 def decode_token(

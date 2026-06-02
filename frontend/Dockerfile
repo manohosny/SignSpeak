@@ -20,6 +20,13 @@ COPY ./frontend /app/frontend
 ARG VITE_API_URL
 ENV VITE_API_URL=$VITE_API_URL
 
+# Optional CDN base for the browser pose models (YOLOX + RTMW). When set, the
+# pose worker fetches the ~71 MB models from this URL (e.g. a public Cloud
+# Storage bucket on Google's network) instead of same-origin /models/rtmw,
+# offloading delivery from the app server. Empty -> serve from the frontend.
+ARG VITE_MODEL_BASE
+ENV VITE_MODEL_BASE=$VITE_MODEL_BASE
+
 RUN bun run build
 
 

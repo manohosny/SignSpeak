@@ -124,6 +124,13 @@ class Settings(BaseSettings):
     # ── Redis (optional, for multi-server WebSocket scaling) ──
     REDIS_URL: str | None = None
 
+    # ── Auth cookie domain ──
+    # When the SPA and API are served from different subdomains (e.g.
+    # dashboard.example.com + api.example.com), set this to the shared parent
+    # (example.com) so the session-marker cookie is readable by the SPA and the
+    # access cookie is sent to the API. Leave unset for same-origin deployments.
+    COOKIE_DOMAIN: str | None = None
+
     # ── WebSocket lifecycle ──
     # On graceful shutdown, broadcast a `server_shutdown` notice to active
     # clients and pause this many seconds before tearing down the process,
