@@ -101,20 +101,31 @@ export function useAudioPlayer() {
     }
   }, [getCtx, playNext])
 
-  // Auto-unlock: register document-level listeners that fire on the
-  // user's very first interaction (click, tap, keypress, etc.).
-  // { capture: true } ensures we see events even if children stopPropagation.
-  // { once: true } auto-removes each listener after first fire.
+  // Auto-unlock: register document-level listeners on every user interaction
+  // (click, tap, keypress, etc.). { capture: true } ensures we see events even
+  // if children stopPropagation.
+  //
+  // These are intentionally NOT { once: true }: Safari re-suspends the
+  // AudioContext on tab blur, idle, or an audio interruption, and the old
+  // "resume once and it stays running" assumption is false there. Keeping the
+  // listeners (unlockAudio is a no-op when already running) re-resumes on the
+  // next gesture, and the visibilitychange handler recovers playback when the
+  // tab is refocused — otherwise TTS audio silently queues and never plays.
   useEffect(() => {
     const handler = () => unlockAudio()
     const events = ["click", "touchstart", "keydown", "pointerdown"]
     for (const evt of events) {
-      document.addEventListener(evt, handler, { once: true, capture: true })
+      document.addEventListener(evt, handler, { capture: true })
     }
+    const onVisible = () => {
+      if (document.visibilityState === "visible") unlockAudio()
+    }
+    document.addEventListener("visibilitychange", onVisible)
     return () => {
       for (const evt of events) {
         document.removeEventListener(evt, handler, { capture: true })
       }
+      document.removeEventListener("visibilitychange", onVisible)
     }
   }, [unlockAudio])
 
