@@ -12,6 +12,7 @@ export type {
   WsMeetingEnded,
   WsServerMessage,
   WsServerShutdown,
+  WsSignText,
   WsTextMsg,
   WsTranscript,
   WsTtsEnd,
@@ -25,7 +26,10 @@ export type WsAuthMessage = { type: "auth"; token: string }
 export type WsTextMessage = { type: "text_message"; content: string }
 export type WsLeaveMessage = { type: "leave" }
 export type WsEndMeetingMessage = { type: "end_meeting" }
-export type WsControlMessage = { type: "control"; action: "utterance_end" }
+export type WsControlMessage = {
+  type: "control"
+  action: "utterance_end" | "sign_segment_end"
+}
 export type WsGlossMessage = { type: "gloss_message"; content: string }
 
 export type WsClientMessage =

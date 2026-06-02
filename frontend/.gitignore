@@ -28,3 +28,6 @@ openapi.json
 /blob-report/
 /playwright/.cache/
 /playwright/.auth/
+
+# RTMW ONNX models (~143MB) — fetch via scripts/download-rtmw-models.sh
+public/models/rtmw/*.onnx

@@ -41,6 +41,8 @@ export function useMeeting(meetingCode: string) {
   const [authError, setAuthError] = useState<string | null>(null)
   // True between `tts_start` and `tts_end` — drives the partner-speaking dot.
   const [isPartnerSpeaking, setIsPartnerSpeaking] = useState(false)
+  // Latest English recognized from the reader's signing (Direction B echo).
+  const [signText, setSignText] = useState<string | null>(null)
 
   // Apply fetch outcomes to the state machine.
   useEffect(() => {
@@ -118,6 +120,10 @@ export function useMeeting(meetingCode: string) {
         case "tts_end":
           setIsPartnerSpeaking(false)
           break
+
+        case "sign_text":
+          setSignText(msg.content)
+          break
       }
     },
     [messages.apply],
@@ -190,6 +196,18 @@ export function useMeeting(meetingCode: string) {
     [sendJson],
   )
 
+  // ── Direction B: gloss-free sign capture ──
+  const sendKeypointFrame = useCallback(
+    (frame: ArrayBuffer) => {
+      sendBinary(frame)
+    },
+    [sendBinary],
+  )
+
+  const sendSignSegmentEnd = useCallback(() => {
+    sendJson({ type: "control", action: "sign_segment_end" })
+  }, [sendJson])
+
   const endMeeting = useCallback(() => {
     sendJson({ type: "end_meeting" })
     setMeetingState("ended")
@@ -215,6 +233,9 @@ export function useMeeting(meetingCode: string) {
     error: authError ?? messages.error,
     sendTextMessage,
     sendGlossMessage,
+    sendKeypointFrame,
+    sendSignSegmentEnd,
+    signText,
     endMeeting,
     toggleMic: recorder.toggleMic,
     isMicOn: recorder.isMicOn,

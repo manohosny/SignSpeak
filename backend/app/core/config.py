@@ -107,6 +107,20 @@ class Settings(BaseSettings):
     TRANSLATION_MAX_LENGTH: int = 128
     TRANSLATION_ENABLED: bool = True        # kill switch
 
+    # ── Sign-to-Text (Uni-Sign, gloss-free signs -> English) ──
+    SIGN_TO_TEXT_ENABLED: bool = True       # kill switch (Direction B signs path)
+    SIGN_TO_TEXT_REPO_DIR: str = "third_party/Uni-Sign"     # vendored Uni-Sign clone
+    SIGN_TO_TEXT_CHECKPOINT: str = "~/.signspeak/models/uni-sign/how2sign_pose_only_slt.pth"
+    SIGN_TO_TEXT_MT5_DIR: str = "~/.signspeak/models/mt5-base"
+    SIGN_TO_TEXT_DEVICE: str = "auto"       # auto | cuda | mps | cpu
+    SIGN_TO_TEXT_NUM_BEAMS: int = 1         # 1 = greedy (CPU/MPS)
+    SIGN_TO_TEXT_MAX_NEW_TOKENS: int = 100
+    SIGN_TO_TEXT_MAX_FRAMES: int = 256      # model T cap; segment buffer force-flush
+    SIGN_TO_TEXT_DTYPE: str = "fp32"        # fp32 on MPS (no bf16)
+    # Sentence segmentation (the gap not covered by the released model):
+    SIGN_TO_TEXT_PAUSE_MS: int = 700        # low-motion duration that ends a sentence
+    SIGN_TO_TEXT_MOTION_THRESHOLD: float = 0.01  # mean hand-kp displacement threshold
+
     # ── Redis (optional, for multi-server WebSocket scaling) ──
     REDIS_URL: str | None = None
 

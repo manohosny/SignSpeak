@@ -108,6 +108,31 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
         except Exception as e:
             logger.warning("Translation model not loaded: %s", e)
 
+    async def _load_sign_to_text() -> None:
+        try:
+            from app.core.config import settings
+
+            if not settings.SIGN_TO_TEXT_ENABLED:
+                logger.info("Sign-to-text model disabled via SIGN_TO_TEXT_ENABLED=false")
+                return
+            import os
+
+            from app.ml.sign_to_text import sign_to_text_engine
+
+            await asyncio.to_thread(
+                sign_to_text_engine.load_model,
+                repo_dir=settings.SIGN_TO_TEXT_REPO_DIR,
+                checkpoint=os.path.expanduser(settings.SIGN_TO_TEXT_CHECKPOINT),
+                mt5_dir=os.path.expanduser(settings.SIGN_TO_TEXT_MT5_DIR),
+                device=settings.SIGN_TO_TEXT_DEVICE,
+                num_beams=settings.SIGN_TO_TEXT_NUM_BEAMS,
+                max_new_tokens=settings.SIGN_TO_TEXT_MAX_NEW_TOKENS,
+                max_frames=settings.SIGN_TO_TEXT_MAX_FRAMES,
+                dtype=settings.SIGN_TO_TEXT_DTYPE,
+            )
+        except Exception as e:
+            logger.warning("Sign-to-text model not loaded: %s", e)
+
     # The handler registry, ML pipelines, and rate-limit buckets are all
     # per-process. Running multiple workers without a Redis-backed
     # registry produces split-brain meeting state, so refuse to start
@@ -143,15 +168,44 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
             )
 
     # Pre-import transformers on the main thread before spawning worker threads.
-    # Both NeMo (STT) and the translation engine import from transformers; without
-    # this, parallel asyncio.to_thread calls can race on module initialization and
-    # produce "cannot import name X from transformers" errors.
+    # Both the translation engine (mBART) and sign-to-text (mt5 via Uni-Sign)
+    # call from_pretrained concurrently in asyncio.to_thread workers. transformers
+    # resolves submodules lazily, so two threads racing the first access can see a
+    # half-initialized module ("cannot import name X from transformers[.onnx]").
+    # Fully warm the model/tokenizer classes (and the onnx submodule) up front so
+    # every lazy import is already resolved before the threads start.
     try:
         import transformers  # noqa: F401
+        from transformers import (  # noqa: F401
+            MBart50TokenizerFast,
+            MBartForConditionalGeneration,
+            MT5ForConditionalGeneration,
+            T5Tokenizer,
+        )
+
+        try:
+            import transformers.onnx  # noqa: F401
+        except Exception:
+            pass
     except ImportError:
         pass
 
-    await asyncio.gather(_load_stt(), _load_tts(), _load_translation())
+    # Load models SEQUENTIALLY, not via asyncio.gather. Constructing several
+    # heavy models concurrently in to_thread workers was the single source of
+    # repeated, hard-to-trace startup failures on Apple MPS:
+    #   * two transformers `from_pretrained` calls racing -> meta-tensor params;
+    #   * racing transformers lazy submodule init -> "cannot import name ... from
+    #     transformers[.onnx]";
+    #   * sign-to-text's sys.path mutation racing other imports;
+    #   * concurrent MPS placement of the two heaviest models (NeMo STT +
+    #     Uni-Sign mt5) deadlocking Metal context creation (0% CPU hang).
+    # Sequential load trades a slower one-time startup for reliability. STT is
+    # loaded last so a slow/failed STT doesn't gate the others. (See the
+    # signspeak-direction-b memory note.)
+    await _load_tts()
+    await _load_translation()
+    await _load_sign_to_text()
+    await _load_stt()
     _models_ready = True
     logger.info("ML models ready")
 

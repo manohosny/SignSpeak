@@ -58,7 +58,8 @@ def make_pcm16_audio(duration: float = 0.25, freq: float = 440.0) -> bytes:
 
 @pytest.fixture(scope="session", autouse=True)
 def _enable_mock_mode():
-    """Enable STT/TTS/Translation mock mode so tests don't need ML models."""
+    """Enable STT/TTS/Translation/Sign-to-Text mock mode so tests need no models."""
+    import app.ml.sign_to_text as sign_to_text_mod
     import app.ml.stt as stt_mod
     import app.ml.tts as tts_mod
     import app.ml.translation as translation_mod
@@ -66,16 +67,21 @@ def _enable_mock_mode():
     stt_mod.MOCK_MODE = True
     tts_mod.MOCK_MODE = True
     translation_mod.MOCK_MODE = True
+    sign_to_text_mod.MOCK_MODE = True
 
     stt_mod.stt_engine.load_model()
     tts_mod.tts_engine.load_model()
     translation_mod.translation_engine.load_model()
+    sign_to_text_mod.sign_to_text_engine.load_model(
+        repo_dir="", checkpoint="", mt5_dir=""
+    )
 
     yield
 
     stt_mod.MOCK_MODE = False
     tts_mod.MOCK_MODE = False
     translation_mod.MOCK_MODE = False
+    sign_to_text_mod.MOCK_MODE = False
 
 
 # ── Function-scoped fixtures ────────────────────────────────

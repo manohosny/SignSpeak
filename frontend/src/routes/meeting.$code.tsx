@@ -33,7 +33,9 @@ function MeetingRoom() {
     role,
     glosses,
     error,
-    sendGlossMessage,
+    sendKeypointFrame,
+    sendSignSegmentEnd,
+    signText,
     endMeeting,
     toggleMic,
     isMicOn,
@@ -85,7 +87,9 @@ function MeetingRoom() {
           <ReaderView
             key={resetKey}
             glosses={glosses}
-            onSendGloss={sendGlossMessage}
+            onKeypointFrame={sendKeypointFrame}
+            onEndSentence={sendSignSegmentEnd}
+            signText={signText}
           />
         </MeetingErrorBoundary>
       )}

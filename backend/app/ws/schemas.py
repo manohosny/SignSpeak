@@ -38,7 +38,9 @@ class WsEndMeetingMessage(_WsMessageBase):
 
 class WsControlMessage(_WsMessageBase):
     type: Literal["control"]
-    action: Literal["utterance_end"]
+    # utterance_end: speaker VAD boundary (STT). sign_segment_end: reader's
+    # explicit "end sentence" cue (Direction B) -> force-flush the segment buffer.
+    action: Literal["utterance_end", "sign_segment_end"]
 
 
 class WsTextMessage(_WsMessageBase):

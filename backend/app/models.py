@@ -41,6 +41,9 @@ class MessageType(str, enum.Enum):
     text_message = "text_message"
     gloss_translation = "gloss_translation"
     gloss_input = "gloss_input"
+    # Gloss-free signs -> English (Direction B, Uni-Sign). Distinct from
+    # gloss_translation so history can tell the two recognition paths apart.
+    sign_translation = "sign_translation"
 
 
 # ============================================================

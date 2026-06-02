@@ -14,11 +14,14 @@ from app import crud_meeting
 from app.core.db import async_session_factory
 from app.core.logging import time_stage
 from app.ml.audio_utils import pcm16_bytes_to_float32
+from app.ml.sign_to_text import sign_to_text_engine
 from app.ml.stt import StreamingSTTBuffer, stt_engine
 from app.ml.translation import translation_engine
 from app.ml.tts import tts_engine
 from app.models import MessageType
 from app.ws.connection_manager import manager
+from app.ws.keypoint_frame import KeypointFrameError, parse_keypoint_frame
+from app.ws.sign_segment_buffer import SignSegmentBuffer
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +34,20 @@ def _get_stt_buffer_mode() -> str:
         return getattr(settings, "STT_BUFFER_MODE", "utterance")
     except Exception:
         return "utterance"
+
+
+def _new_sign_segment_buffer() -> SignSegmentBuffer:
+    """Build a segment buffer from settings (import deferred to avoid circular)."""
+    try:
+        from app.core.config import settings
+
+        return SignSegmentBuffer(
+            max_frames=settings.SIGN_TO_TEXT_MAX_FRAMES,
+            pause_ms=settings.SIGN_TO_TEXT_PAUSE_MS,
+            motion_threshold=settings.SIGN_TO_TEXT_MOTION_THRESHOLD,
+        )
+    except Exception:
+        return SignSegmentBuffer()
 
 
 class MeetingHandler:
@@ -51,6 +68,11 @@ class MeetingHandler:
     def __init__(self, meeting_id: uuid.UUID) -> None:
         self.meeting_id = meeting_id
         self.stt_buffer = StreamingSTTBuffer(mode=_get_stt_buffer_mode())
+        # Per-reader keypoint accumulation + sentence segmentation (Direction B).
+        self.sign_segment_buffer = _new_sign_segment_buffer()
+        # Serialize segmentation feed/flush so overlapping keypoint frames can't
+        # interleave a half-built sentence (mirrors _stt_lock).
+        self._sign_lock = asyncio.Lock()
         self._active = True
         self._last_partial_time: float = 0.0
         # Audio rate limiting state
@@ -349,7 +371,6 @@ class MeetingHandler:
         if not session:
             return
 
-        speaker = session.speaker
         timestamp = datetime.now(timezone.utc).isoformat()
 
         # Echo gloss back to reader for confirmation
@@ -420,30 +441,35 @@ class MeetingHandler:
                 msg_type=MessageType.text_message,
             )
 
-        # TTS: stream English to speaker (reuse existing TTS path)
+        # TTS: stream English to speaker (shared with the sign path).
+        await self._stream_tts_to_speaker(english, source="gloss_message")
+
+    async def _stream_tts_to_speaker(self, text: str, source: str) -> None:
+        """Synthesize `text` and stream WAV chunks to the meeting's speaker.
+
+        Shared by the gloss path (handle_gloss_message) and the gloss-free sign
+        path (handle_keypoint_frames). No-ops (with a log) when there is no
+        connected speaker or the TTS engine isn't loaded.
+        """
+        session = manager.get_session(self.meeting_id)
+        speaker = session.speaker if session else None
         if not speaker:
             logger.warning("TTS skipped — no speaker connected")
             return
-
         if not tts_engine.is_loaded:
             logger.warning("TTS skipped — engine not loaded")
             return
 
         try:
-            logger.info("TTS (from gloss): streaming %d chars...", len(english))
+            logger.info("TTS (from %s): streaming %d chars...", source, len(text))
             await manager.send_json_to_user(
                 meeting_id=self.meeting_id,
                 user_id=speaker.user_id,
                 data={"type": "tts_start"},
             )
             chunk_count = 0
-            tts_stream = tts_engine.synthesize_sentences_streaming(english)
-            with time_stage(
-                "tts",
-                logger=logger,
-                source="gloss_message",
-                chars=len(english),
-            ):
+            tts_stream = tts_engine.synthesize_sentences_streaming(text)
+            with time_stage("tts", logger=logger, source=source, chars=len(text)):
                 try:
                     async for wav_chunk in tts_stream:
                         sent = await manager.send_bytes_to_user(
@@ -453,7 +479,8 @@ class MeetingHandler:
                         )
                         if not sent:
                             logger.info(
-                                "TTS (gloss) abort — speaker disconnected after %d chunks",
+                                "TTS (%s) abort — speaker disconnected after %d chunks",
+                                source,
                                 chunk_count,
                             )
                             break
@@ -464,27 +491,128 @@ class MeetingHandler:
                         try:
                             await aclose()
                         except Exception as exc:
-                            # Don't mask the original streaming outcome,
-                            # but a failed cleanup can leave the producer
-                            # in a bad state — make it visible.
+                            # Don't mask the original streaming outcome, but a
+                            # failed cleanup can leave the producer in a bad
+                            # state — make it visible.
                             logger.warning(
                                 "TTS generator cleanup (aclose) failed: %s",
                                 exc,
                                 exc_info=True,
                             )
-            logger.info("TTS (from gloss): streamed %d chunks to speaker", chunk_count)
+            logger.info("TTS (from %s): streamed %d chunks to speaker", source, chunk_count)
             await manager.send_json_to_user(
                 meeting_id=self.meeting_id,
                 user_id=speaker.user_id,
                 data={"type": "tts_end"},
             )
         except Exception as e:
-            logger.error("TTS streaming (from gloss) failed: %s", e)
+            logger.error("TTS streaming (from %s) failed: %s", source, e)
             await manager.send_json_to_user(
                 meeting_id=self.meeting_id,
                 user_id=speaker.user_id,
                 data={"type": "error", "message": "Audio synthesis failed"},
             )
+
+    async def handle_keypoint_frames(
+        self,
+        sender_id: uuid.UUID,
+        frame: bytes,
+    ) -> None:
+        """Reader sent a binary RTMW keypoint frame (gloss-free Direction B).
+
+        Accumulate into the per-reader segment buffer; on a sentence boundary,
+        translate keypoints -> English via Uni-Sign, echo to the reader, persist,
+        and stream TTS to the speaker. Inference only runs on flush, not per frame.
+        """
+        if not self._active:
+            return
+
+        try:
+            keypoints, scores, _ = parse_keypoint_frame(frame)
+        except KeypointFrameError as e:
+            logger.warning("Bad keypoint frame from %s: %s", sender_id, e)
+            return
+
+        now_ms = time.monotonic() * 1000.0
+        async with self._sign_lock:
+            self.sign_segment_buffer.feed(keypoints, scores, now_ms)
+            flush = self.sign_segment_buffer.should_flush(now_ms)
+            logger.debug(
+                "keypoint frame: +%d frames -> buffered=%d, flush=%s",
+                keypoints.shape[0],
+                len(self.sign_segment_buffer),
+                flush,
+            )
+            if not flush:
+                return
+            flushed = self.sign_segment_buffer.flush()
+        if flushed is None:
+            return
+        await self._translate_and_speak_segment(sender_id, *flushed)
+
+    async def handle_sign_segment_end(self, sender_id: uuid.UUID) -> None:
+        """Reader pressed 'end sentence' — force-flush whatever is buffered.
+
+        A reliable client-driven boundary that sidesteps the motion heuristic.
+        """
+        if not self._active:
+            return
+        async with self._sign_lock:
+            flushed = self.sign_segment_buffer.flush()
+        if flushed is None:
+            return
+        await self._translate_and_speak_segment(sender_id, *flushed)
+
+    async def _translate_and_speak_segment(
+        self,
+        sender_id: uuid.UUID,
+        keypoints,
+        scores,
+    ) -> None:
+        """Translate one segmented keypoint clip and route the English result."""
+        timestamp = datetime.now(timezone.utc).isoformat()
+
+        if not sign_to_text_engine.is_loaded:
+            logger.warning("Sign-to-text skipped — engine not loaded")
+            await manager.send_json_to_user(
+                meeting_id=self.meeting_id,
+                user_id=sender_id,
+                data={"type": "error", "message": "Sign recognition not available"},
+            )
+            return
+
+        try:
+            with time_stage("sign_to_text", logger=logger, frames=len(keypoints)):
+                english = await sign_to_text_engine.translate_keypoints(keypoints, scores)
+        except Exception as e:
+            logger.error("Sign-to-text inference error: %s", e)
+            english = None
+
+        if not english:
+            await manager.send_json_to_user(
+                meeting_id=self.meeting_id,
+                user_id=sender_id,
+                data={"type": "error", "message": "Could not recognize signing"},
+            )
+            return
+
+        # Echo recognized English back to the reader for confirmation.
+        await manager.send_json_to_user(
+            meeting_id=self.meeting_id,
+            user_id=sender_id,
+            data={
+                "type": "sign_text",
+                "content": english,
+                "sender_id": str(sender_id),
+                "timestamp": timestamp,
+            },
+        )
+        await self._save_message(
+            sender_id=sender_id,
+            content=english,
+            msg_type=MessageType.sign_translation,
+        )
+        await self._stream_tts_to_speaker(english, source="sign_frames")
 
     async def handle_speaker_stopped(
         self,

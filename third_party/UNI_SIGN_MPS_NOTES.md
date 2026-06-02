@@ -1,0 +1,79 @@
+# Uni-Sign — MPS port + pose-contract notes (Phase 0)
+
+Vendored clone of https://github.com/ZechengLi19/Uni-Sign. We run it **pose-only,
+inference-only** on Apple M1 / MPS, fp32. These notes record the facts the backend
+`sign_to_text` engine must replicate exactly. Source of truth: `models.py`,
+`datasets.py`, `demo/online_inference.py` in this folder.
+
+## Checkpoint
+- `how2sign_pose_only_slt.pth` from `ZechengLi19/Uni-Sign` → `~/.signspeak/models/uni-sign/`.
+  Loaded as `torch.load(..., map_location="cpu")["model"]`, `load_state_dict(strict=True)`.
+  Contains the ST-GCN encoder **and** the mt5-base weights (the whole `Uni_Sign` module).
+- `google/mt5-base` → `~/.signspeak/models/mt5-base/`. Needed because `Uni_Sign.__init__`
+  calls `MT5ForConditionalGeneration.from_pretrained(mt5_path)` / `T5Tokenizer.from_pretrained`
+  before the checkpoint is loaded over it. `config.py:mt5_path` must point here.
+
+## Model shape (models.py:Uni_Sign)
+- 4 streams `modes = ['body','left','right','face_all']`. Each: `Graph(layout=mode)` +
+  `proj_linear[mode] = Linear(3, 64)` on **(x, y, score)** → spatial ST-GCN → temporal
+  ST-GCN → mean-pool over joints → per-stream (B,T,C). Streams concatenated on channel dim,
+  `+ part_para`, `pose_proj: Linear(256*4, 768)` → pose token embeds.
+- A prefix `"Translate sign language video to English: "` is tokenised and its mt5 encoder
+  embeddings are **prepended** to the pose embeds; `attention_mask = cat(prefix_mask, pose_mask)`.
+- `hidden_dim = 256` (arg default). `rgb_support = False` for us (pose-only).
+- **`maybe_autocast` (L152-161) uses `torch.cuda.amp.autocast`, but it is ONLY called inside
+  the RGB-support path (`gather_feat_pose_rgb`). Pose-only never touches it → no patch needed.**
+- Inference: `stack_out = model(src_input, tgt_input)` then
+  `model.generate(stack_out, max_new_tokens, num_beams)` → token ids → `mt5_tokenizer.batch_decode`.
+  Note `forward()` still needs `tgt_input["gt_sentence"]` (a list of strings) to build the
+  prefix batch size and a (discarded) loss — pass `[""]`.
+
+## The 4 VERIFY items (gates correctness)
+
+### (a) Normalization beyond [W,H]  — `datasets.py:load_part_kp` + `crop_scale`
+Pipeline per clip (after the client/extractor has already divided x by W, y by H → [0,1]):
+1. **body** stream → `crop_scale(body_xy_score, thr=0.3)`: bbox over valid (score>0.3) body
+   joints; `scale = max(bbox_w, bbox_h)`; `xy = (xy - [xs,ys]) / scale`; `xy = (xy-0.5)*2`;
+   clip to [-1,1]; zero any joint with score ≤ 0.3. **Returns `scale`** (shared below).
+2. **left/right/face** streams → root-centre (subtract the stream's root joint), then divide
+   xy by the **body `scale`** (NOT their own), clip [-1,1], zero joints with score ≤ 0.3.
+   If `scale == 0` the whole stream becomes zeros.
+- `force_ok=True` in the online path (always run crop_scale on body).
+- Input to `load_part_kp` is a list over frames; each frame `keypoints[t]` has shape
+  `(num_persons, 133, 2)` and `scores[t]` `(num_persons, 133)`. It takes **person 0**
+  (`skeleton[0]`, `conf[0]`).
+
+### (b) Stream → COCO-WholeBody-133 index grouping  — `load_part_kp`
+- `body`  : indices `[0] + [3..10]`  → **9** joints (nose + ears + shoulders/elbows/wrists).
+- `left`  : `91:112`                  → **21** joints, root-centred on index 91.
+- `right` : `112:133`                 → **21** joints, root-centred on index 112.
+- `face_all`: `list(range(23,40))[::2]` (9) + `range(83,91)` (8) + `[53]` (1) → **18** joints,
+  root-centred on the **last** (index 53).
+- Each stream tensor is `(T, n_joints, 3)` = (x, y, score).
+
+### (c) mt5 generation caps  — `demo/online_inference.py`
+- `generate(max_new_tokens=100, num_beams=4)`. Labels in training capped `max_length=50`.
+- On MPS we use **greedy (`num_beams=1`)** for latency (mirrors translation.py's MPS downgrade);
+  `max_new_tokens` configurable (default 100).
+
+### (d) Max pose-sequence length T  — `args.max_length`, `S2T_Dataset_online.load_pose`
+- `args.max_length` default **256**. If `duration > max_length`: `sorted(random.sample(range
+  (duration), k=max_length))` (seeded by `set_seed(42)`). Else all frames.
+- → backend `SIGN_TO_TEXT_MAX_FRAMES = 256`; segment buffer force-flush at this cap. For
+  determinism the engine should uniform-subsample (or seed) rather than rely on global RNG.
+
+## src_input assembly  — `Base_Dataset.collate_fn`
+- Per stream key, pad frames to max T in batch (repeat last frame). For B=1 no padding.
+- `attention_mask`: `ones(T)` per sample, padded with 0 → `(mask != 0).long()`. Length = T
+  pose tokens (prefix mask is concatenated in `forward`).
+- `tgt_input = {'gt_sentence': [''], 'gt_gloss': ['']}` for online.
+
+## CUDA → MPS port (inference path only)
+- `demo/online_inference.py`: `model.cuda()`→`.to(DEVICE)`; drop `model.to(torch.bfloat16)`
+  and the bf16 input cast (use **fp32**); `pad_tensor ... .cuda()`→`.to(DEVICE)`;
+  `pose_extraction(device="cuda")`→`"cpu"` on mac. We do NOT edit this file in place — the
+  standalone `scratch_smoke.py` and the backend engine implement their own device-agnostic
+  driver and import only `Uni_Sign` / `load_part_kp` / `S2T_Dataset_online`.
+- `utils.py`: distributed/NCCL is training-only; never call `init_distributed_mode`.
+  `set_seed` calls `torch.cuda.manual_seed*` which no-op when CUDA absent — safe.
+- Export `PYTORCH_ENABLE_MPS_FALLBACK=1` before importing torch.

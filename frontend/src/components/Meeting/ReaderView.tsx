@@ -1,34 +1,37 @@
-import { useMemo } from "react"
-
 import type { GlossEntry } from "@/lib/meeting-types"
 import { AvatarView } from "./AvatarView"
-import { GlossFeed } from "./GlossFeed"
-import { GlossInput } from "./GlossInput"
+import { SignCaptureView } from "./SignCaptureView"
 
 interface ReaderViewProps {
+  /** Direction A: gloss entries the avatar signs (the speaker's translated speech). */
   glosses: GlossEntry[]
-  onSendGloss: (gloss: string) => void
+  /** Direction B: send packed binary keypoint frames from the reader's webcam. */
+  onKeypointFrame: (frame: ArrayBuffer) => void
+  /** Direction B: force a sentence boundary (control: sign_segment_end). */
+  onEndSentence: () => void
+  /** Direction B: English recognized from the reader's signing (server echo). */
+  signText: string | null
   disabled?: boolean
 }
 
 export function ReaderView({
   glosses,
-  onSendGloss,
+  onKeypointFrame,
+  onEndSentence,
+  signText,
   disabled,
 }: ReaderViewProps) {
-  const ownGlosses = useMemo(
-    () => glosses.filter((entry) => entry.isOwn),
-    [glosses],
-  )
-
   return (
     <div className="relative flex flex-1 flex-col">
-      <GlossFeed
-        entries={ownGlosses}
-        emptyMessage="Type a gloss below to send it as speech."
-      />
-      <GlossInput onSend={onSendGloss} disabled={disabled} />
+      {/* Direction A: watch the speaker's words signed by the avatar. */}
       <AvatarView entries={glosses} />
+      {/* Direction B: sign to speak — webcam -> keypoints -> English -> TTS. */}
+      <SignCaptureView
+        onKeypointFrame={onKeypointFrame}
+        onEndSentence={onEndSentence}
+        signText={signText}
+        disabled={disabled}
+      />
     </div>
   )
 }

@@ -43,6 +43,7 @@ from app.core.security import ACCESS_TOKEN_COOKIE, decode_token
 from app.models import Meeting, MeetingStatus, TokenPayload, User
 from app.ws.connection_manager import manager
 from app.ws.handlers import MeetingHandler, get_or_create_handler, remove_handler
+from app.ws.keypoint_frame import is_keypoint_frame
 from app.ws.schemas import WsClientMessage
 
 logger = logging.getLogger(__name__)
@@ -56,6 +57,13 @@ _TEXT_MSG_BURST = 20
 # text_message to keep one reader from starving the meeting.
 _GLOSS_MSG_RATE_LIMIT = 3  # max gloss messages per second
 _GLOSS_MSG_BURST = 6
+
+# Keypoint frame rate limiting (token bucket). Each binary frame is a *batch*
+# of video frames fed to the segmentation buffer; actual ML inference only runs
+# on a sentence flush, so the feed rate can be higher than gloss. This bounds a
+# misbehaving reader from flooding the buffer.
+_KEYPOINT_FRAME_RATE_LIMIT = 15  # max keypoint frames per second
+_KEYPOINT_FRAME_BURST = 30
 
 # Per-frame size caps. Audio frames are typically 16 kB at 16 kHz × 1 s; cap
 # generously above that. Text frames carry control messages and short gloss
@@ -227,6 +235,8 @@ async def meeting_websocket(
     text_last_refill: float = time.monotonic()
     gloss_tokens: float = float(_GLOSS_MSG_BURST)
     gloss_last_refill: float = time.monotonic()
+    kp_tokens: float = float(_KEYPOINT_FRAME_BURST)
+    kp_last_refill: float = time.monotonic()
     try:
         while True:
             # No application-level idle timeout here: a reader watching the
@@ -248,6 +258,18 @@ async def meeting_websocket(
                     })
                     await websocket.close(code=1009, reason="Frame too large")
                     break
+                # Reader binary = keypoint frames -> ML segmentation; rate-limit
+                # separately from speaker audio (which is throttled in its handler).
+                if role == "reader":
+                    allowed, kp_tokens, kp_last_refill = _take_token(
+                        kp_tokens, kp_last_refill,
+                        _KEYPOINT_FRAME_RATE_LIMIT, _KEYPOINT_FRAME_BURST,
+                    )
+                    if not allowed:
+                        await websocket.send_json(
+                            {"type": "error", "message": "Rate limited"}
+                        )
+                        continue
                 await _handle_binary(handler, user_id, role, payload)
 
             elif "text" in message and message["text"]:
@@ -334,13 +356,21 @@ async def _handle_binary(
     handler: MeetingHandler,
     user_id: uuid.UUID,
     role: str,
-    audio_bytes: bytes,
+    payload: bytes,
 ) -> None:
-    """Route binary (audio) frames from Speaker."""
+    """Route binary frames: Speaker -> PCM16 audio; Reader -> keypoint frames.
+
+    Frame type is decided by role first, then (for readers) the leading
+    frame-type tag, so the same binary channel carries both directions.
+    """
     if role == "speaker":
-        await handler.handle_audio_chunk(sender_id=user_id, audio_bytes=audio_bytes)
+        await handler.handle_audio_chunk(sender_id=user_id, audio_bytes=payload)
+        return
+    # Reader: gloss-free Direction B keypoint frames.
+    if is_keypoint_frame(payload):
+        await handler.handle_keypoint_frames(sender_id=user_id, frame=payload)
     else:
-        logger.warning("Reader %s sent audio — ignoring", user_id)
+        logger.warning("Reader %s sent untagged binary — ignoring", user_id)
 
 
 async def _handle_text(
@@ -407,6 +437,8 @@ async def _handle_text(
     if msg.type == "control":
         if msg.action == "utterance_end" and role == "speaker":
             await handler.handle_utterance_end(sender_id=user_id)
+        elif msg.action == "sign_segment_end" and role == "reader":
+            await handler.handle_sign_segment_end(sender_id=user_id)
         return False, False
 
     if msg.type == "text_message":

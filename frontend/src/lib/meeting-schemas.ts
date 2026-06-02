@@ -76,6 +76,15 @@ const WsGlossErrorSchema = z.object({
   message: z.string(),
 })
 
+// Recognized English from gloss-free sign recognition (Direction B), echoed
+// back to the Reader for confirmation (the Speaker hears it via TTS).
+const WsSignTextSchema = z.object({
+  type: z.literal("sign_text"),
+  content: z.string(),
+  sender_id: z.string(),
+  timestamp: z.string(),
+})
+
 const WsServerShutdownSchema = z.object({
   type: z.literal("server_shutdown"),
   reason: z.string().optional(),
@@ -95,6 +104,7 @@ export const WsServerMessageSchema = z.discriminatedUnion("type", [
   WsGlossSchema,
   WsGlossMessageSchema,
   WsGlossErrorSchema,
+  WsSignTextSchema,
   WsServerShutdownSchema,
 ])
 
@@ -112,4 +122,5 @@ export type WsTtsEnd = z.infer<typeof WsTtsEndSchema>
 export type WsGloss = z.infer<typeof WsGlossSchema>
 export type WsGlossMsg = z.infer<typeof WsGlossMessageSchema>
 export type WsGlossError = z.infer<typeof WsGlossErrorSchema>
+export type WsSignText = z.infer<typeof WsSignTextSchema>
 export type WsServerShutdown = z.infer<typeof WsServerShutdownSchema>
