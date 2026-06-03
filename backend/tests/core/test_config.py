@@ -42,3 +42,11 @@ def test_default_secret_key_warns_in_local() -> None:
 def test_real_secret_passes_in_production() -> None:
     settings = _make_settings(ENVIRONMENT="production", SECRET_KEY="z" * 64)
     assert settings.ENVIRONMENT == "production"
+
+
+def test_rest_pose_segmentation_defaults():
+    from app.core.config import settings
+    assert settings.SIGN_TO_TEXT_REST_DROP_MARGIN == 0.15
+    assert settings.SIGN_TO_TEXT_REST_HAND_CONF == 0.3
+    assert settings.SIGN_TO_TEXT_REST_DEBOUNCE_MS == 250
+    assert settings.SIGN_TO_TEXT_MIN_FRAMES == 8

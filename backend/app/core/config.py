@@ -123,7 +123,11 @@ class Settings(BaseSettings):
     # Don't auto-translate sub-segment motion blips: a pause only ends a
     # sentence once at least this many frames have accumulated. Also used as a
     # hard floor before any translation (gates micro force-flushes too).
-    SIGN_TO_TEXT_MIN_FRAMES: int = 16
+    SIGN_TO_TEXT_MIN_FRAMES: int = 8        # min SIGNING frames for a real sign clip
+    # ── Rest-pose segmentation (hands up = signing, hands to sides = boundary) ──
+    SIGN_TO_TEXT_REST_DROP_MARGIN: float = 0.15  # wrist-below-shoulder margin when hips out of frame
+    SIGN_TO_TEXT_REST_HAND_CONF: float = 0.3     # mean hand-kp confidence below which hands are "out of frame"
+    SIGN_TO_TEXT_REST_DEBOUNCE_MS: int = 250     # sustained rest after a sign before flushing
     # Mean hand-keypoint detection confidence below which a segment is treated
     # as too-poor-to-translate (suppresses hallucinations from bad pose input).
     SIGN_TO_TEXT_MIN_CONFIDENCE: float = 0.3
