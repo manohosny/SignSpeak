@@ -60,7 +60,7 @@ export function SignCaptureView({
         : loadingModel
           ? "Loading sign model… (first time can take ~10s)"
           : isCapturing
-            ? "Signing — tap to stop"
+            ? "Sign, then drop your hands to your sides between signs — tap to stop"
             : "Tap to start signing"
 
   return (
