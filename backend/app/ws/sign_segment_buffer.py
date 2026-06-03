@@ -20,10 +20,40 @@ from __future__ import annotations
 import numpy as np
 
 NUM_KEYPOINTS = 133
-# COCO-WholeBody hand keypoint ranges — the joints that actually move when
-# signing. Motion energy is measured over these so head/body sway doesn't
-# masquerade as active signing.
+# COCO-WholeBody indices used for rest-pose detection.
+_LEFT_WRIST, _RIGHT_WRIST = 9, 10
+_LEFT_SHOULDER, _RIGHT_SHOULDER = 5, 6
+_LEFT_HIP, _RIGHT_HIP = 11, 12
 _HAND_SLICE = slice(91, 133)  # left hand 91..111 + right hand 112..132
+_HIP_VISIBLE_CONF = 0.3       # below this, hips are treated as out of frame
+
+
+def hands_at_rest(
+    kp: np.ndarray,
+    sc: np.ndarray,
+    *,
+    drop_margin: float,
+    hand_conf: float,
+) -> bool:
+    """True when both arms are down at the sides (a sign boundary).
+
+    kp: (133, 2) keypoints normalized [0,1], y increasing downward.
+    sc: (133,) per-keypoint confidence in [0,1]. Body-relative (no calibration):
+      - hands dropped out of frame -> mean hand-keypoint confidence < hand_conf;
+      - else both wrists below the hip line (or, if hips are out of frame,
+        below the shoulders by drop_margin).
+    """
+    if float(np.mean(sc[_HAND_SLICE])) < hand_conf:
+        return True
+    wl_y = float(kp[_LEFT_WRIST, 1])
+    wr_y = float(kp[_RIGHT_WRIST, 1])
+    shoulder_y = float((kp[_LEFT_SHOULDER, 1] + kp[_RIGHT_SHOULDER, 1]) / 2.0)
+    hips_conf = float((sc[_LEFT_HIP] + sc[_RIGHT_HIP]) / 2.0)
+    if hips_conf >= _HIP_VISIBLE_CONF:
+        line = float((kp[_LEFT_HIP, 1] + kp[_RIGHT_HIP, 1]) / 2.0)
+    else:
+        line = shoulder_y + drop_margin
+    return wl_y > line and wr_y > line
 
 
 class SignSegmentBuffer:

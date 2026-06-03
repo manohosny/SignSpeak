@@ -1,24 +1,59 @@
-"""Tests for SignSegmentBuffer — sentence segmentation triggers + accumulation."""
+"""Tests for SignSegmentBuffer — rest-pose segmentation + accumulation."""
 
 import numpy as np
 
-from app.ws.sign_segment_buffer import NUM_KEYPOINTS, SignSegmentBuffer
+from app.ws.sign_segment_buffer import (
+    NUM_KEYPOINTS,
+    SignSegmentBuffer,
+    hands_at_rest,
+)
+
+REST = dict(drop_margin=0.15, hand_conf=0.3)
 
 
-def _static_frames(t, value=0.5):
-    """T frames with no motion (constant keypoints)."""
-    kp = np.full((t, NUM_KEYPOINTS, 2), value, dtype=np.float32)
-    sc = np.full((t, NUM_KEYPOINTS), 0.9, dtype=np.float32)
-    return kp, sc
-
-
-def _moving_frames(t, step=0.05):
-    """T frames where the hands drift each frame (clear motion)."""
+def _signing_frames(t):
+    """T frames with hands UP (wrists between shoulders and hips) = signing."""
     kp = np.zeros((t, NUM_KEYPOINTS, 2), dtype=np.float32)
-    for i in range(t):
-        kp[i, 91:133, :] = 0.3 + i * step  # hands move
+    kp[:, 5:7, 1] = 0.20    # shoulders near top
+    kp[:, 11:13, 1] = 0.80  # hips low
+    kp[:, 9:11, 1] = 0.45   # wrists above the hip line -> signing
+    kp[:, 91:133, :] = 0.45  # hands present, in frame
+    for i in range(t):       # small motion so motion_energy works
+        kp[i, 91:133, :] += i * 0.005
     sc = np.full((t, NUM_KEYPOINTS), 0.9, dtype=np.float32)
     return kp, sc
+
+
+def _rest_frames(t):
+    """T frames with hands DOWN (wrists below hips) = rest/boundary."""
+    kp = np.zeros((t, NUM_KEYPOINTS, 2), dtype=np.float32)
+    kp[:, 5:7, 1] = 0.20
+    kp[:, 11:13, 1] = 0.70
+    kp[:, 9:11, 1] = 0.95   # wrists below the hip line -> rest
+    kp[:, 91:133, :] = 0.95
+    sc = np.full((t, NUM_KEYPOINTS), 0.9, dtype=np.float32)
+    return kp, sc
+
+
+class TestHandsAtRest:
+    def test_hands_up_is_signing(self):
+        kp, sc = _signing_frames(1)
+        assert hands_at_rest(kp[0], sc[0], **REST) is False
+
+    def test_hands_below_hips_is_rest(self):
+        kp, sc = _rest_frames(1)
+        assert hands_at_rest(kp[0], sc[0], **REST) is True
+
+    def test_hands_out_of_frame_is_rest(self):
+        kp, sc = _signing_frames(1)
+        sc[0, 91:133] = 0.05  # hands lost confidence (dropped out of frame)
+        assert hands_at_rest(kp[0], sc[0], **REST) is True
+
+    def test_hips_out_of_frame_uses_shoulder_margin(self):
+        kp, sc = _signing_frames(1)
+        sc[0, 11:13] = 0.05         # hips not visible
+        kp[0, 9:11, 1] = 0.90       # wrists well below shoulders (0.20 + 0.15)
+        assert hands_at_rest(kp[0], sc[0], **REST) is True
 
 
 class TestAccumulation:
