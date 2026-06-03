@@ -26,6 +26,19 @@ from app.ws.sign_segment_buffer import SignSegmentBuffer
 logger = logging.getLogger(__name__)
 
 
+def _is_degenerate_text(text: str) -> bool:
+    """Detect hallucinated, degenerate output — a single token repeated, e.g.
+    'Oh, yeah, yeah, yeah, ...' that gloss-free Uni-Sign emits on weak/short
+    input. Suppressing it avoids speaking confident nonsense to the speaker."""
+    words = text.lower().split()
+    if len(words) < 6:
+        return False
+    counts: dict[str, int] = {}
+    for w in words:
+        counts[w] = counts.get(w, 0) + 1
+    return max(counts.values()) / len(words) > 0.5
+
+
 def _get_stt_buffer_mode() -> str:
     """Read buffer mode from settings (import deferred to avoid circular)."""
     try:
@@ -45,6 +58,7 @@ def _new_sign_segment_buffer() -> SignSegmentBuffer:
             max_frames=settings.SIGN_TO_TEXT_MAX_FRAMES,
             pause_ms=settings.SIGN_TO_TEXT_PAUSE_MS,
             motion_threshold=settings.SIGN_TO_TEXT_MOTION_THRESHOLD,
+            min_frames=settings.SIGN_TO_TEXT_MIN_FRAMES,
         )
     except Exception:
         return SignSegmentBuffer()
@@ -73,6 +87,10 @@ class MeetingHandler:
         # Serialize segmentation feed/flush so overlapping keypoint frames can't
         # interleave a half-built sentence (mirrors _stt_lock).
         self._sign_lock = asyncio.Lock()
+        # Recognized isolated signs (WLASL words) accumulate here across
+        # per-sign segments and are spoken as one sentence when the reader ends
+        # the sentence (stops signing / sign_segment_end).
+        self._sign_words: list[str] = []
         self._active = True
         self._last_partial_time: float = 0.0
         # Audio rate limiting state
@@ -537,10 +555,16 @@ class MeetingHandler:
         async with self._sign_lock:
             self.sign_segment_buffer.feed(keypoints, scores, now_ms)
             flush = self.sign_segment_buffer.should_flush(now_ms)
+            # Debug-level motion trace (raise to INFO to retune the pause
+            # threshold against real signing: compare `motion` here vs
+            # SIGN_TO_TEXT_MOTION_THRESHOLD to see if rests register as pauses).
             logger.debug(
-                "keypoint frame: +%d frames -> buffered=%d, flush=%s",
+                "kp seg: +%d -> buffered=%d motion=%.4f flush=%s",
                 keypoints.shape[0],
                 len(self.sign_segment_buffer),
+                self.sign_segment_buffer.motion_energy(
+                    self.sign_segment_buffer.motion_window
+                ),
                 flush,
             )
             if not flush:
@@ -548,71 +572,124 @@ class MeetingHandler:
             flushed = self.sign_segment_buffer.flush()
         if flushed is None:
             return
-        await self._translate_and_speak_segment(sender_id, *flushed)
+        # Recognize this one sign and add it to the building sentence (no speech
+        # yet — the full sentence is spoken when the reader ends it).
+        await self._recognize_and_accumulate(sender_id, *flushed)
 
     async def handle_sign_segment_end(self, sender_id: uuid.UUID) -> None:
-        """Reader pressed 'end sentence' — force-flush whatever is buffered.
+        """Reader stopped the signing session — flush any in-progress sign,
+        then translate the accumulated signs to English and speak the sentence.
 
-        A reliable client-driven boundary that sidesteps the motion heuristic.
+        During the session, each sign is auto-recognized on a motion pause and
+        appended live (reader sees the glosses build up); this finalizes and
+        voices the whole sentence when the reader taps stop.
         """
         if not self._active:
             return
         async with self._sign_lock:
             flushed = self.sign_segment_buffer.flush()
-        if flushed is None:
-            return
-        await self._translate_and_speak_segment(sender_id, *flushed)
+        if flushed is not None:
+            await self._recognize_and_accumulate(sender_id, *flushed)
+        await self._finalize_sign_sentence(sender_id)
 
-    async def _translate_and_speak_segment(
+    async def _recognize_and_accumulate(
         self,
         sender_id: uuid.UUID,
         keypoints,
         scores,
     ) -> None:
-        """Translate one segmented keypoint clip and route the English result."""
-        timestamp = datetime.now(timezone.utc).isoformat()
+        """Recognize ONE isolated sign and append it to the sentence buffer.
+
+        Updates the reader's partial 'Recognized:' display as the sentence
+        builds; does NOT speak — the full sentence is spoken on end-of-sentence.
+        """
+        from app.core.config import settings
+
+        # Confidence / length gating — skip segments too short or too poorly
+        # detected to recognize reliably (avoids hallucinated words).
+        n_frames = len(keypoints)
+        hand_conf = float(scores[:, 91:133].mean()) if n_frames else 0.0
+        if (
+            n_frames < settings.SIGN_TO_TEXT_MIN_FRAMES
+            or hand_conf < settings.SIGN_TO_TEXT_MIN_CONFIDENCE
+        ):
+            logger.info(
+                "sign gated: frames=%d hand_conf=%.2f (min_frames=%d, min_conf=%.2f)",
+                n_frames,
+                hand_conf,
+                settings.SIGN_TO_TEXT_MIN_FRAMES,
+                settings.SIGN_TO_TEXT_MIN_CONFIDENCE,
+            )
+            return
 
         if not sign_to_text_engine.is_loaded:
             logger.warning("Sign-to-text skipped — engine not loaded")
-            await manager.send_json_to_user(
-                meeting_id=self.meeting_id,
-                user_id=sender_id,
-                data={"type": "error", "message": "Sign recognition not available"},
-            )
             return
 
         try:
-            with time_stage("sign_to_text", logger=logger, frames=len(keypoints)):
-                english = await sign_to_text_engine.translate_keypoints(keypoints, scores)
+            with time_stage("sign_to_text", logger=logger, frames=n_frames):
+                word = await sign_to_text_engine.translate_keypoints(keypoints, scores)
         except Exception as e:
             logger.error("Sign-to-text inference error: %s", e)
-            english = None
+            word = None
 
-        if not english:
-            await manager.send_json_to_user(
-                meeting_id=self.meeting_id,
-                user_id=sender_id,
-                data={"type": "error", "message": "Could not recognize signing"},
-            )
+        if not word or _is_degenerate_text(word):
+            logger.info("sign gated (empty/degenerate): %r", word)
             return
 
-        # Echo recognized English back to the reader for confirmation.
+        self._sign_words.append(word.strip())
+        # Partial feedback: show the sentence building up (no speech yet).
         await manager.send_json_to_user(
             meeting_id=self.meeting_id,
             user_id=sender_id,
             data={
                 "type": "sign_text",
-                "content": english,
+                "content": " ".join(self._sign_words),
+                "sender_id": str(sender_id),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "is_partial": True,
+            },
+        )
+
+    async def _finalize_sign_sentence(self, sender_id: uuid.UUID) -> None:
+        """End of sentence: turn the accumulated ASL-gloss words into grammatical
+        English (gloss->English model), then speak it as one utterance.
+
+        ISLR yields signs in ASL word order ("me name john"); the gloss->English
+        model adds grammar ("My name is John"). Falls back to the raw gloss
+        sequence if translation is unavailable or fails, so output is never lost.
+        """
+        if not self._sign_words:
+            return
+        gloss = " ".join(self._sign_words)
+        self._sign_words = []
+
+        english: str | None = None
+        try:
+            with time_stage("gloss_to_english", logger=logger, source="sign_frames"):
+                english = await translation_engine.gloss_to_english(gloss.upper())
+        except Exception as e:
+            logger.warning("gloss->English failed, speaking raw gloss: %s", e)
+        spoken = (english or "").strip() or gloss
+        logger.info("sign sentence: gloss=%r -> english=%r", gloss, spoken)
+
+        timestamp = datetime.now(timezone.utc).isoformat()
+        await manager.send_json_to_user(
+            meeting_id=self.meeting_id,
+            user_id=sender_id,
+            data={
+                "type": "sign_text",
+                "content": spoken,
                 "sender_id": str(sender_id),
                 "timestamp": timestamp,
             },
         )
         await self._save_message(
             sender_id=sender_id,
-            content=english,
+            content=spoken,
             msg_type=MessageType.sign_translation,
         )
-        await self._stream_tts_to_speaker(english, source="sign_frames")
+        await self._stream_tts_to_speaker(spoken, source="sign_frames")
 
     async def handle_speaker_stopped(
         self,

@@ -37,7 +37,7 @@ export function usePoseCapture({
   onKeypointFrame,
   enabled,
   videoRef,
-  batchFrames = 10,
+  batchFrames = 3,
   targetFps = 12,
 }: UsePoseCaptureOptions) {
   const [isCameraOn, setIsCameraOn] = useState(false)

@@ -40,11 +40,13 @@ class SignSegmentBuffer:
         pause_ms: int = 700,
         motion_threshold: float = 0.01,
         motion_window: int = 6,
+        min_frames: int = 16,
     ) -> None:
         self.max_frames = max_frames
         self.pause_ms = pause_ms
         self.motion_threshold = motion_threshold
         self.motion_window = motion_window
+        self.min_frames = min_frames
         self._kps: list[np.ndarray] = []   # each (133, 2)
         self._scores: list[np.ndarray] = []  # each (133,)
         # Server-receive time (ms) of the most recent frame that showed motion
@@ -99,6 +101,10 @@ class SignSegmentBuffer:
             return False
         if len(self._kps) >= self.max_frames:
             return True
+        # Don't end a sentence on a pause until enough frames have built up —
+        # avoids translating brief motion blips into hallucinated text.
+        if len(self._kps) < self.min_frames:
+            return False
         if self._last_active_ms is None:
             return False
         return (now_ms - self._last_active_ms) >= self.pause_ms

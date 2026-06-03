@@ -83,7 +83,11 @@ services:
       # Uni-Sign checkpoint + mt5 snapshot live on a dedicated persistent
       # volume (the default ~/.signspeak path is not otherwise mounted, so a
       # fresh cloud VM would have no checkpoint and sign-to-text would fail).
-      - SIGN_TO_TEXT_CHECKPOINT=/home/appuser/.signspeak/models/uni-sign/how2sign_pose_only_slt.pth
+      # WLASL isolated-sign-recognition checkpoint (sign -> word). The
+      # how2sign sentence-SLT checkpoint hallucinates on isolated/short input;
+      # WLASL ISLR + the gloss->English step (translation engine) is the
+      # reliable path. Swap back to how2sign_pose_only_slt.pth for sentence SLT.
+      - SIGN_TO_TEXT_CHECKPOINT=/home/appuser/.signspeak/models/uni-sign/wlasl_pose_only_islr.pth
       - SIGN_TO_TEXT_MT5_DIR=/home/appuser/.signspeak/models/mt5-base
 
     volumes:

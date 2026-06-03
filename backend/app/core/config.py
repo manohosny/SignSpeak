@@ -120,6 +120,13 @@ class Settings(BaseSettings):
     # Sentence segmentation (the gap not covered by the released model):
     SIGN_TO_TEXT_PAUSE_MS: int = 700        # low-motion duration that ends a sentence
     SIGN_TO_TEXT_MOTION_THRESHOLD: float = 0.01  # mean hand-kp displacement threshold
+    # Don't auto-translate sub-segment motion blips: a pause only ends a
+    # sentence once at least this many frames have accumulated. Also used as a
+    # hard floor before any translation (gates micro force-flushes too).
+    SIGN_TO_TEXT_MIN_FRAMES: int = 16
+    # Mean hand-keypoint detection confidence below which a segment is treated
+    # as too-poor-to-translate (suppresses hallucinations from bad pose input).
+    SIGN_TO_TEXT_MIN_CONFIDENCE: float = 0.3
 
     # ── Redis (optional, for multi-server WebSocket scaling) ──
     REDIS_URL: str | None = None
