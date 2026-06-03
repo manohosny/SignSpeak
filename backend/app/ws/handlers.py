@@ -56,9 +56,10 @@ def _new_sign_segment_buffer() -> SignSegmentBuffer:
 
         return SignSegmentBuffer(
             max_frames=settings.SIGN_TO_TEXT_MAX_FRAMES,
-            pause_ms=settings.SIGN_TO_TEXT_PAUSE_MS,
-            motion_threshold=settings.SIGN_TO_TEXT_MOTION_THRESHOLD,
             min_frames=settings.SIGN_TO_TEXT_MIN_FRAMES,
+            rest_debounce_ms=settings.SIGN_TO_TEXT_REST_DEBOUNCE_MS,
+            rest_drop_margin=settings.SIGN_TO_TEXT_REST_DROP_MARGIN,
+            rest_hand_conf=settings.SIGN_TO_TEXT_REST_HAND_CONF,
         )
     except Exception:
         return SignSegmentBuffer()
