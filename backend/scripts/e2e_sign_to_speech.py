@@ -46,10 +46,15 @@ async def main():
         r=await c.post(f"{BASE}/meetings/{code}/join",json={"role":"reader"},headers={"Authorization":f"Bearer {rt}"}); r.raise_for_status(); print("reader joined")
     async with websockets.connect(f"{WS}/{mid}?token={st}") as spk, websockets.connect(f"{WS}/{mid}?token={rt}") as rdr:
         await collect(spk,"speaker",{"auth_ok"},10); await collect(rdr,"reader",{"auth_ok"},10)
-        rng=np.random.default_rng(0)
-        kp=rng.uniform(0.2,0.8,(40,NUM_KEYPOINTS,2)).astype(np.float32)
-        sc=rng.uniform(0.5,0.99,(40,NUM_KEYPOINTS)).astype(np.float32)
-        frame=pack_keypoint_frame(kp,sc,640,480)
+        rng = np.random.default_rng(0)
+        T = 24
+        kp = np.zeros((T, NUM_KEYPOINTS, 2), dtype=np.float32)
+        kp[:, 5:7, 1] = 0.20       # shoulders
+        kp[:, 11:13, 1] = 0.80     # hips
+        kp[:, 9:11, 1] = 0.45      # wrists above the hip line -> SIGNING
+        kp[:, 91:133, :] = 0.45 + rng.uniform(0, 0.05, (T, 42, 2)).astype(np.float32)
+        sc = np.full((T, NUM_KEYPOINTS), 0.9, dtype=np.float32)
+        frame = pack_keypoint_frame(kp, sc, 640, 480)
         await rdr.send(frame); print(f"reader sent keypoint frame ({len(frame)} bytes)")
         await rdr.send(json.dumps({"type":"control","action":"sign_segment_end"})); print("reader sent sign_segment_end")
         (rt2,_),(st2,sb)=await asyncio.gather(
