@@ -57,19 +57,19 @@ class TestHandsAtRest:
 
 
 class TestAccumulation:
-    def test_feed_accumulates(self):
+    def test_feed_accumulates_only_signing_frames(self):
         buf = SignSegmentBuffer()
-        kp, sc = _moving_frames(5)
-        buf.feed(kp, sc, now_ms=0)
+        sig_kp, sig_sc = _signing_frames(5)
+        buf.feed(sig_kp, sig_sc, now_ms=0)
         assert len(buf) == 5
-        kp2, sc2 = _moving_frames(3)
-        buf.feed(kp2, sc2, now_ms=100)
-        assert len(buf) == 8
+        rest_kp, rest_sc = _rest_frames(4)
+        buf.feed(rest_kp, rest_sc, now_ms=100)  # rest frames discarded
+        assert len(buf) == 5
 
-    def test_flush_returns_and_clears(self):
+    def test_flush_returns_clip_and_clears(self):
         buf = SignSegmentBuffer()
-        kp, sc = _moving_frames(7)
-        buf.feed(kp, sc, now_ms=0)
+        sig_kp, sig_sc = _signing_frames(7)
+        buf.feed(sig_kp, sig_sc, now_ms=0)
         out = buf.flush()
         assert out is not None
         kps, scores = out
@@ -82,42 +82,39 @@ class TestAccumulation:
 
 
 class TestFlushTriggers:
+    def test_rest_after_sign_triggers_flush(self):
+        buf = SignSegmentBuffer(min_frames=4, rest_debounce_ms=250)
+        sig_kp, sig_sc = _signing_frames(6)
+        buf.feed(sig_kp, sig_sc, now_ms=1000)   # last signing frame at t=1000
+        assert not buf.should_flush(now_ms=1100)  # 100ms rest < debounce
+        assert buf.should_flush(now_ms=1300)       # 300ms rest >= debounce
+
+    def test_too_short_clip_does_not_flush(self):
+        buf = SignSegmentBuffer(min_frames=8, rest_debounce_ms=250)
+        sig_kp, sig_sc = _signing_frames(4)        # below min_frames
+        buf.feed(sig_kp, sig_sc, now_ms=0)
+        assert not buf.should_flush(now_ms=10_000)
+
     def test_max_frames_cap_forces_flush(self):
-        buf = SignSegmentBuffer(max_frames=10, pause_ms=100_000)
-        kp, sc = _moving_frames(10)
-        buf.feed(kp, sc, now_ms=0)
-        assert buf.should_flush(now_ms=1)  # cap hit even though "active"
+        buf = SignSegmentBuffer(max_frames=10, rest_debounce_ms=100_000)
+        sig_kp, sig_sc = _signing_frames(10)
+        buf.feed(sig_kp, sig_sc, now_ms=0)
+        assert buf.should_flush(now_ms=1)
 
-    def test_pause_triggers_flush(self):
-        buf = SignSegmentBuffer(max_frames=1000, pause_ms=700, motion_threshold=0.01)
-        kp, sc = _moving_frames(6)
-        buf.feed(kp, sc, now_ms=0)            # active at t=0
-        # No further motion; 800ms later the pause window has elapsed.
-        assert not buf.should_flush(now_ms=500)
-        assert buf.should_flush(now_ms=800)
-
-    def test_active_signing_does_not_flush(self):
-        buf = SignSegmentBuffer(max_frames=1000, pause_ms=700, motion_threshold=0.01)
-        # Keep feeding moving frames with advancing timestamps -> stays active.
+    def test_continuous_signing_does_not_flush(self):
+        buf = SignSegmentBuffer(min_frames=4, rest_debounce_ms=250)
         for k in range(5):
-            kp, sc = _moving_frames(4)
-            buf.feed(kp, sc, now_ms=k * 200)
-        assert not buf.should_flush(now_ms=5 * 200)
+            sig_kp, sig_sc = _signing_frames(4)
+            buf.feed(sig_kp, sig_sc, now_ms=k * 100)  # last signing keeps advancing
+        assert not buf.should_flush(now_ms=5 * 100)
 
     def test_empty_never_flushes(self):
-        buf = SignSegmentBuffer()
-        assert not buf.should_flush(now_ms=10_000)
+        assert not SignSegmentBuffer().should_flush(now_ms=10_000)
 
 
 class TestMotionEnergy:
-    def test_static_low_energy(self):
+    def test_signing_has_motion(self):
         buf = SignSegmentBuffer()
-        kp, sc = _static_frames(8)
-        buf.feed(kp, sc, now_ms=0)
-        assert buf.motion_energy(6) < 1e-6
-
-    def test_moving_high_energy(self):
-        buf = SignSegmentBuffer()
-        kp, sc = _moving_frames(8, step=0.05)
-        buf.feed(kp, sc, now_ms=0)
-        assert buf.motion_energy(6) > 0.01
+        sig_kp, sig_sc = _signing_frames(8)
+        buf.feed(sig_kp, sig_sc, now_ms=0)
+        assert buf.motion_energy(6) > 0.0

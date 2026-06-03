@@ -67,39 +67,47 @@ class SignSegmentBuffer:
     def __init__(
         self,
         max_frames: int = 256,
-        pause_ms: int = 700,
-        motion_threshold: float = 0.01,
+        min_frames: int = 8,
+        rest_debounce_ms: int = 250,
+        rest_drop_margin: float = 0.15,
+        rest_hand_conf: float = 0.3,
         motion_window: int = 6,
-        min_frames: int = 16,
     ) -> None:
         self.max_frames = max_frames
-        self.pause_ms = pause_ms
-        self.motion_threshold = motion_threshold
-        self.motion_window = motion_window
         self.min_frames = min_frames
-        self._kps: list[np.ndarray] = []   # each (133, 2)
+        self.rest_debounce_ms = rest_debounce_ms
+        self.rest_drop_margin = rest_drop_margin
+        self.rest_hand_conf = rest_hand_conf
+        self.motion_window = motion_window
+        self._kps: list[np.ndarray] = []     # each (133, 2) — SIGNING frames only
         self._scores: list[np.ndarray] = []  # each (133,)
-        # Server-receive time (ms) of the most recent frame that showed motion
-        # above threshold. Pause = now - last_active_ms.
-        self._last_active_ms: float | None = None
+        # now_ms of the most recent SIGNING frame; rest is measured from here.
+        self._last_signing_ms: float | None = None
 
     def __len__(self) -> int:
         return len(self._kps)
 
     def feed(self, keypoints: np.ndarray, scores: np.ndarray, now_ms: float) -> None:
-        """Append a batch of frames. keypoints (T,133,2), scores (T,133)."""
+        """Append a batch of frames. keypoints (T,133,2), scores (T,133).
+
+        Only SIGNING frames (hands up) are accumulated; REST frames (hands
+        dropped to the sides) are discarded so each clip stays rest-free.
+        """
         keypoints = np.asarray(keypoints, dtype=np.float32)
         scores = np.asarray(scores, dtype=np.float32)
         if keypoints.ndim != 3 or keypoints.shape[1:] != (NUM_KEYPOINTS, 2):
             raise ValueError(f"bad keypoints shape {keypoints.shape}")
-        if self._last_active_ms is None:
-            self._last_active_ms = now_ms
         for i in range(keypoints.shape[0]):
+            if hands_at_rest(
+                keypoints[i],
+                scores[i],
+                drop_margin=self.rest_drop_margin,
+                hand_conf=self.rest_hand_conf,
+            ):
+                continue  # boundary frame — don't pollute the clip
             self._kps.append(keypoints[i])
             self._scores.append(scores[i])
-        # If this batch carried motion, refresh the activity timestamp.
-        if self.motion_energy(self.motion_window) >= self.motion_threshold:
-            self._last_active_ms = now_ms
+            self._last_signing_ms = now_ms
 
     def motion_energy(self, window: int) -> float:
         """Mean per-joint hand displacement over the last `window` frames.
@@ -119,25 +127,21 @@ class SignSegmentBuffer:
         return float(np.mean(diffs))
 
     def should_flush(self, now_ms: float) -> bool:
-        """Whether the accumulated frames form a complete sentence unit.
+        """A clean single-sign clip is ready when the hands have dropped to rest.
 
-        Heuristic v1 (tunable — see SIGN_TO_TEXT_PAUSE_MS / _MOTION_THRESHOLD):
-          - hard cap: at/over the model's frame budget, flush now;
-          - pause: signing went quiet (no motion) for >= pause_ms.
-        TODO(segmentation): replace with a learned boundary detector; the pause
-        heuristic over/under-segments on hesitant or run-on signing.
+        - hard cap: at/over the model's frame budget, flush now;
+        - boundary: after >= min_frames signing frames, hands at rest (no new
+          signing frame) for >= rest_debounce_ms.
         """
         if len(self._kps) == 0:
             return False
         if len(self._kps) >= self.max_frames:
             return True
-        # Don't end a sentence on a pause until enough frames have built up —
-        # avoids translating brief motion blips into hallucinated text.
         if len(self._kps) < self.min_frames:
             return False
-        if self._last_active_ms is None:
+        if self._last_signing_ms is None:
             return False
-        return (now_ms - self._last_active_ms) >= self.pause_ms
+        return (now_ms - self._last_signing_ms) >= self.rest_debounce_ms
 
     def flush(self) -> tuple[np.ndarray, np.ndarray] | None:
         """Return accumulated (keypoints (T,133,2), scores (T,133)) and clear.
@@ -154,4 +158,4 @@ class SignSegmentBuffer:
     def clear(self) -> None:
         self._kps.clear()
         self._scores.clear()
-        self._last_active_ms = None
+        self._last_signing_ms = None
