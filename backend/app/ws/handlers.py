@@ -556,9 +556,9 @@ class MeetingHandler:
         async with self._sign_lock:
             self.sign_segment_buffer.feed(keypoints, scores, now_ms)
             flush = self.sign_segment_buffer.should_flush(now_ms)
-            # Debug-level motion trace (raise to INFO to retune the pause
-            # threshold against real signing: compare `motion` here vs
-            # SIGN_TO_TEXT_MOTION_THRESHOLD to see if rests register as pauses).
+            # Debug-level motion trace (raise to INFO to inspect hand motion vs
+            # the rest-pose boundary decisions during real signing). Segmentation
+            # is rest-pose based, not motion-threshold based — this is diagnostic only.
             logger.debug(
                 "kp seg: +%d -> buffered=%d motion=%.4f flush=%s",
                 keypoints.shape[0],

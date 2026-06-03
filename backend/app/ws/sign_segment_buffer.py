@@ -1,18 +1,21 @@
-"""Per-reader keypoint accumulation + sentence segmentation (Direction B).
+"""Per-reader keypoint accumulation + rest-pose sign segmentation (Direction B).
 
-Uni-Sign is a *sentence-level* model (clip -> sentence). A live webcam produces a
-continuous keypoint stream, so it must be chunked into sentence-like units before
-each translation call. This is THE gap the released model does not cover.
+WLASL ISLR recognizes one *clean isolated sign* per clip. A live webcam produces
+a continuous keypoint stream, so it must be split into single-sign clips. We do
+this with a rest-pose state machine: the reader signs with hands up, then drops
+their arms to the sides between signs. "Hands up" = signing; "hands at sides /
+out of frame" = a sign boundary (see ``hands_at_rest``). Only SIGNING frames are
+accumulated, so each emitted clip is rest-free — what ISLR recognizes well.
 
-Two flush triggers, defence-in-depth:
-  1. Client cue (reliable): the Reader presses "end sentence" -> the handler calls
-     force_flush(). This always works regardless of heuristic quality.
-  2. Server heuristic (auto): a pause in signing (hand motion-energy stays below a
-     threshold for `pause_ms`) ends a sentence. Plus a hard `max_frames` safety cap
-     so a non-stop signer still gets periodic translations.
+Flush triggers:
+  1. Server (auto): hands drop to rest for >= ``rest_debounce_ms`` after a sign
+     of >= ``min_frames`` frames -> flush that clip for live per-sign recognition.
+  2. Safety cap: ``max_frames`` force-flushes a runaway (never-resting) clip.
+  3. Client cue: the reader taps stop -> the handler flushes + finalizes (speak).
 
-Frames arrive already batched inside one binary WebSocket frame; this buffer
-accumulates across batches until a flush trigger fires.
+Frames arrive batched inside one binary WebSocket frame; this buffer classifies
+each frame and accumulates the signing ones across batches until a flush fires.
+The class is pure/unit-testable — the caller supplies monotonic ms timestamps.
 """
 
 from __future__ import annotations
@@ -71,7 +74,7 @@ class SignSegmentBuffer:
         rest_debounce_ms: int = 250,
         rest_drop_margin: float = 0.15,
         rest_hand_conf: float = 0.3,
-        motion_window: int = 6,
+        motion_window: int = 6,  # fixed window for the debug-only motion_energy() trace
     ) -> None:
         self.max_frames = max_frames
         self.min_frames = min_frames

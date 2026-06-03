@@ -117,12 +117,9 @@ class Settings(BaseSettings):
     SIGN_TO_TEXT_MAX_NEW_TOKENS: int = 100
     SIGN_TO_TEXT_MAX_FRAMES: int = 256      # model T cap; segment buffer force-flush
     SIGN_TO_TEXT_DTYPE: str = "fp32"        # fp32 on MPS (no bf16)
-    # Sentence segmentation (the gap not covered by the released model):
-    SIGN_TO_TEXT_PAUSE_MS: int = 700        # low-motion duration that ends a sentence
-    SIGN_TO_TEXT_MOTION_THRESHOLD: float = 0.01  # mean hand-kp displacement threshold
-    # Don't auto-translate sub-segment motion blips: a pause only ends a
-    # sentence once at least this many frames have accumulated. Also used as a
-    # hard floor before any translation (gates micro force-flushes too).
+    # Sign segmentation (rest-pose state machine — see SignSegmentBuffer).
+    # A sign clip must reach this many SIGNING frames before it can flush; also
+    # a hard floor before translation (gates accidental brief hand-raises).
     SIGN_TO_TEXT_MIN_FRAMES: int = 8        # min SIGNING frames for a real sign clip
     # ── Rest-pose segmentation (hands up = signing, hands to sides = boundary) ──
     SIGN_TO_TEXT_REST_DROP_MARGIN: float = 0.15  # wrist-below-shoulder margin when hips out of frame
