@@ -573,8 +573,9 @@ class MeetingHandler:
             flushed = self.sign_segment_buffer.flush()
         if flushed is None:
             return
-        # Recognize this one sign and add it to the building sentence (no speech
-        # yet — the full sentence is spoken when the reader ends it).
+        # Instant "captured" feedback, then recognize + append (no speech yet —
+        # the full sentence is spoken when the reader taps stop).
+        await self._send_pending_sign(sender_id)
         await self._recognize_and_accumulate(sender_id, *flushed)
 
     async def handle_sign_segment_end(self, sender_id: uuid.UUID) -> None:
@@ -592,6 +593,23 @@ class MeetingHandler:
         if flushed is not None:
             await self._recognize_and_accumulate(sender_id, *flushed)
         await self._finalize_sign_sentence(sender_id)
+
+    async def _send_pending_sign(self, sender_id: uuid.UUID) -> None:
+        """Instant feedback the moment a sign boundary is detected — shows the
+        accumulated glosses plus a trailing '…' so the reader sees the sign was
+        captured before the (CPU) recognition returns ~0.5s later."""
+        pending = (" ".join(self._sign_words) + " …").strip()
+        await manager.send_json_to_user(
+            meeting_id=self.meeting_id,
+            user_id=sender_id,
+            data={
+                "type": "sign_text",
+                "content": pending,
+                "sender_id": str(sender_id),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "is_partial": True,
+            },
+        )
 
     async def _recognize_and_accumulate(
         self,
