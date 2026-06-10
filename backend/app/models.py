@@ -184,7 +184,7 @@ class MeetingJoin(SQLModel):
 class MeetingPublic(SQLModel):
     """Returned after creating or fetching a meeting."""
 
-    model_config = {"from_attributes": True}  # type: ignore[assignment]
+    model_config = {"from_attributes": True}
 
     id: uuid.UUID
     code: str
@@ -256,7 +256,7 @@ class MeetingParticipant(MeetingParticipantBase, table=True):
 
 
 class MeetingParticipantPublic(SQLModel):
-    model_config = {"from_attributes": True}  # type: ignore[assignment]
+    model_config = {"from_attributes": True}
 
     id: uuid.UUID
     user_id: uuid.UUID
@@ -315,7 +315,7 @@ class MeetingMessageCreate(SQLModel):
 
 
 class MeetingMessagePublic(SQLModel):
-    model_config = {"from_attributes": True}  # type: ignore[assignment]
+    model_config = {"from_attributes": True}
 
     id: uuid.UUID
     meeting_id: uuid.UUID

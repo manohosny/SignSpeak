@@ -67,7 +67,7 @@ class TranslationEngine:
     """
 
     def __init__(self) -> None:
-        self._model = None
+        self._model: Any = None
         self._tokenizers: dict[str, Any] = {}
         self._decode_tokenizer: Any = None
         self._device: str = "cpu"

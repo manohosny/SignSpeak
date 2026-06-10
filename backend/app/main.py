@@ -3,11 +3,12 @@ import logging
 import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from typing import Any
 
 import sentry_sdk
 from fastapi import FastAPI, Request
 from fastapi.routing import APIRoute
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.responses import Response
@@ -36,7 +37,7 @@ def models_ready() -> bool:
 _AUDIO_VAR_KEYWORDS = ("audio", "pcm", "wav", "buffer", "chunk")
 
 
-def _scrub_sentry_event(event: dict, hint: dict) -> dict:  # noqa: ARG001  (Sentry before_send signature: (event, hint))
+def _scrub_sentry_event(event: dict[str, Any], hint: dict[str, Any]) -> dict[str, Any]:  # noqa: ARG001  (Sentry before_send signature: (event, hint))
     """Strip audio data and large binary payloads from Sentry events."""
     if "exception" in event:
         for exc_info in event["exception"].get("values", []):
@@ -53,7 +54,7 @@ if settings.SENTRY_DSN and settings.ENVIRONMENT != "local":
         dsn=str(settings.SENTRY_DSN),
         enable_tracing=True,
         send_default_pii=False,
-        before_send=_scrub_sentry_event,
+        before_send=_scrub_sentry_event,  # type: ignore[arg-type]  # dict-based event/hint matches sentry's Event/Hint at runtime
         max_request_body_size="small",
     )
     logger.info("Sentry enabled (env=%s)", settings.ENVIRONMENT)
@@ -248,11 +249,11 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
             now = datetime.now(timezone.utc)
             result = await _prune_session.execute(
                 delete(RevokedRefreshToken).where(
-                    RevokedRefreshToken.expires_at < now
+                    RevokedRefreshToken.expires_at < now  # type: ignore[arg-type]  # SQLAlchemy ColumnElement
                 )
             )
             await _prune_session.commit()
-            return result.rowcount or 0
+            return result.rowcount or 0  # type: ignore[attr-defined]  # CursorResult.rowcount
 
     try:
         pruned = await _prune_revoked_refresh_tokens()
@@ -279,7 +280,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
             except Exception as exc:
                 logger.warning("Periodic blacklist prune failed: %s", exc)
 
-    prune_task: asyncio.Task | None = None
+    prune_task: asyncio.Task[None] | None = None
     if settings.REVOKED_TOKEN_PRUNE_INTERVAL_SECONDS > 0:
         prune_task = asyncio.create_task(
             _periodic_prune(), name="revoked-token-prune"
@@ -397,7 +398,9 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
     can propagate their trace IDs); generates a fresh UUID otherwise.
     """
 
-    async def dispatch(self, request: Request, call_next):  # type: ignore[override]
+    async def dispatch(
+        self, request: Request, call_next: RequestResponseEndpoint
+    ) -> Response:
         request_id = request.headers.get("x-request-id") or uuid.uuid4().hex
         token = bind_context(request_id=request_id, path=request.url.path)
         try:
@@ -416,7 +419,9 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     breaking local dev.
     """
 
-    async def dispatch(self, request: Request, call_next):  # type: ignore[override]
+    async def dispatch(
+        self, request: Request, call_next: RequestResponseEndpoint
+    ) -> Response:
         response: Response = await call_next(request)
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("X-Frame-Options", "DENY")

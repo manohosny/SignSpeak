@@ -19,8 +19,10 @@ router distinguishes by role first, then tag.
 """
 
 import struct
+from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 
 KEYPOINT_FRAME_TYPE = 0x01
 FRAME_VERSION = 0x01
@@ -44,7 +46,7 @@ def is_keypoint_frame(payload: bytes) -> bool:
     return len(payload) >= 1 and payload[0] == KEYPOINT_FRAME_TYPE
 
 
-def parse_keypoint_frame(payload: bytes) -> tuple[np.ndarray, np.ndarray, tuple[int, int]]:
+def parse_keypoint_frame(payload: bytes) -> tuple[npt.NDArray[Any], npt.NDArray[Any], tuple[int, int]]:
     """Decode a binary keypoint frame.
 
     Returns (keypoints (T,133,2) float32, scores (T,133) float32, (W, H)).
@@ -78,7 +80,7 @@ def parse_keypoint_frame(payload: bytes) -> tuple[np.ndarray, np.ndarray, tuple[
 
 
 def pack_keypoint_frame(
-    keypoints: np.ndarray, scores: np.ndarray, width: int, height: int
+    keypoints: npt.NDArray[Any], scores: npt.NDArray[Any], width: int, height: int
 ) -> bytes:
     """Encode keypoints/scores into the binary layout (mirrors the JS client).
 
@@ -94,4 +96,8 @@ def pack_keypoint_frame(
         raise KeypointFrameError(f"bad scores shape {scores.shape}")
 
     arr = np.concatenate([keypoints, scores[:, :, None]], axis=-1).astype("<f4")
-    return _HEADER.pack(KEYPOINT_FRAME_TYPE, FRAME_VERSION, t, width, height) + arr.tobytes()
+    packed: bytes = (
+        _HEADER.pack(KEYPOINT_FRAME_TYPE, FRAME_VERSION, t, width, height)
+        + arr.tobytes()
+    )
+    return packed

@@ -19,11 +19,16 @@ export const DET_INPUT = 416
 export const SIMCC_SPLIT_RATIO = 2.0
 export const NUM_KEYPOINTS = 133
 // ImageNet mean/std used by RTMPose (RGB).
-export const POSE_MEAN: Point | [number, number, number] = [123.675, 116.28, 103.53]
+export const POSE_MEAN: Point | [number, number, number] = [
+  123.675, 116.28, 103.53,
+]
 export const POSE_STD: [number, number, number] = [58.395, 57.12, 57.375]
 
 // ── bbox -> center/scale (bbox_xyxy2cs) ──────────────────────────────────────
-export function bboxXyxy2cs(bbox: BBox, padding = 1.25): { center: Point; scale: Point } {
+export function bboxXyxy2cs(
+  bbox: BBox,
+  padding = 1.25,
+): { center: Point; scale: Point } {
   const [x1, y1, x2, y2] = bbox
   return {
     center: [(x1 + x2) * 0.5, (y1 + y2) * 0.5],
@@ -32,7 +37,11 @@ export function bboxXyxy2cs(bbox: BBox, padding = 1.25): { center: Point; scale:
 }
 
 // Reshape scale to the model's fixed aspect ratio (top_down_affine).
-export function fixAspectRatio(scale: Point, w = POSE_INPUT_W, h = POSE_INPUT_H): Point {
+export function fixAspectRatio(
+  scale: Point,
+  w = POSE_INPUT_W,
+  h = POSE_INPUT_H,
+): Point {
   const aspect = w / h
   const [bw, bh] = scale
   return bw > bh * aspect ? [bw, bw / aspect] : [bh * aspect, bh]
@@ -47,7 +56,10 @@ function get3rdPoint(a: Point, b: Point): Point {
  * 2x3 affine mapping src triangle -> dst triangle (cv2.getAffineTransform).
  * Returned as [a, b, tx, c, d, ty] with dst = [a*x+b*y+tx, c*x+d*y+ty].
  */
-export function getAffineTransform(src: [Point, Point, Point], dst: [Point, Point, Point]): number[] {
+export function getAffineTransform(
+  src: [Point, Point, Point],
+  dst: [Point, Point, Point],
+): number[] {
   // Solve two 3x3 systems: [x y 1] · [a b tx]^T = dst_x  (and dst_y).
   const A = [
     [src[0][0], src[0][1], 1],
@@ -61,7 +73,8 @@ export function getAffineTransform(src: [Point, Point, Point], dst: [Point, Poin
       m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0]) +
       m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0])
     const D = det(A)
-    const col = (i: number) => A.map((row, r) => row.map((v, c) => (c === i ? bx[r] : v)))
+    const col = (i: number) =>
+      A.map((row, r) => row.map((v, c) => (c === i ? bx[r] : v)))
     return [det(col(0)) / D, det(col(1)) / D, det(col(2)) / D]
   }
   const [a, b, tx] = solve3([dst[0][0], dst[1][0], dst[2][0]])
@@ -70,14 +83,22 @@ export function getAffineTransform(src: [Point, Point, Point], dst: [Point, Poin
 }
 
 /** Forward warp matrix (src image -> 192x256 model input), rot = 0. */
-export function getWarpMatrix(center: Point, scale: Point, w = POSE_INPUT_W, h = POSE_INPUT_H): number[] {
+export function getWarpMatrix(
+  center: Point,
+  scale: Point,
+  w = POSE_INPUT_W,
+  h = POSE_INPUT_H,
+): number[] {
   const srcW = scale[0]
   const srcDir: Point = [0, srcW * -0.5]
   const dstDir: Point = [0, w * -0.5]
   const src: [Point, Point, Point] = [
     [center[0], center[1]],
     [center[0] + srcDir[0], center[1] + srcDir[1]],
-    get3rdPoint([center[0], center[1]], [center[0] + srcDir[0], center[1] + srcDir[1]]),
+    get3rdPoint(
+      [center[0], center[1]],
+      [center[0] + srcDir[0], center[1] + srcDir[1]],
+    ),
   ]
   const dstC: Point = [w * 0.5, h * 0.5]
   const dst: [Point, Point, Point] = [
@@ -172,6 +193,10 @@ export function selectPersonBox(
 }
 
 /** Letterbox ratio for YOLOX (resize keeping aspect, pad bottom/right with 114). */
-export function letterboxRatio(imgW: number, imgH: number, input = DET_INPUT): number {
+export function letterboxRatio(
+  imgW: number,
+  imgH: number,
+  input = DET_INPUT,
+): number {
   return Math.min(input / imgH, input / imgW)
 }

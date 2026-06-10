@@ -24,7 +24,10 @@ The class is pure/unit-testable — the caller supplies monotonic ms timestamps.
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
+import numpy.typing as npt
 
 NUM_KEYPOINTS = 133
 # COCO-WholeBody indices used for rest-pose detection.
@@ -36,8 +39,8 @@ _HIP_VISIBLE_CONF = 0.3       # below this, hips are treated as out of frame
 
 
 def hands_at_rest(
-    kp: np.ndarray,
-    sc: np.ndarray,
+    kp: npt.NDArray[Any],
+    sc: npt.NDArray[Any],
     *,
     drop_margin: float,
     hand_conf: float,
@@ -90,8 +93,8 @@ class SignSegmentBuffer:
         self.pause_ms = pause_ms
         self.motion_threshold = motion_threshold
         self.motion_window = motion_window
-        self._kps: list[np.ndarray] = []     # each (133, 2) — SIGNING frames only
-        self._scores: list[np.ndarray] = []  # each (133,)
+        self._kps: list[npt.NDArray[Any]] = []     # each (133, 2) — SIGNING frames only
+        self._scores: list[npt.NDArray[Any]] = []  # each (133,)
         # now_ms of the most recent SIGNING frame; rest is measured from here.
         self._last_signing_ms: float | None = None
         # now_ms of the most recent ACTIVE-motion frame, and whether this clip
@@ -103,7 +106,7 @@ class SignSegmentBuffer:
     def __len__(self) -> int:
         return len(self._kps)
 
-    def feed(self, keypoints: np.ndarray, scores: np.ndarray, now_ms: float) -> None:
+    def feed(self, keypoints: npt.NDArray[Any], scores: npt.NDArray[Any], now_ms: float) -> None:
         """Append a batch of frames. keypoints (T,133,2), scores (T,133).
 
         Only SIGNING frames (hands up) are accumulated; REST frames (hands
@@ -177,7 +180,7 @@ class SignSegmentBuffer:
             and (now_ms - self._last_motion_ms) >= self.pause_ms
         )
 
-    def flush(self) -> tuple[np.ndarray, np.ndarray] | None:
+    def flush(self) -> tuple[npt.NDArray[Any], npt.NDArray[Any]] | None:
         """Return accumulated (keypoints (T,133,2), scores (T,133)) and clear.
 
         Returns None if empty.

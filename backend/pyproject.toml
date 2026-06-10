@@ -57,6 +57,20 @@ build-backend = "hatchling.build"
 strict = true
 exclude = ["venv", ".venv", "alembic"]
 
+# Third-party ML/runtime libs that ship no type stubs or py.typed marker.
+# Treating their imports as Any keeps `strict = true` without vendoring stubs
+# we don't control.
+[[tool.mypy.overrides]]
+module = [
+    "nemo.*",
+    "onnxruntime.*",
+    "pysbd.*",
+    "soundfile.*",
+    "redis.*",
+    "kokoro_onnx.*",
+]
+ignore_missing_imports = true
+
 [tool.ruff]
 target-version = "py310"
 exclude = ["alembic"]

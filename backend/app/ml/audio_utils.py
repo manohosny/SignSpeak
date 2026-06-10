@@ -8,11 +8,13 @@ Browser playback expects WAV-framed bytes.
 
 import io
 import wave
+from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 
 
-def pcm16_bytes_to_float32(pcm_bytes: bytes) -> np.ndarray:
+def pcm16_bytes_to_float32(pcm_bytes: bytes) -> npt.NDArray[np.floating[Any]]:
     """Convert raw PCM 16-bit signed little-endian bytes to float32 numpy array.
 
     Input:  bytes (PCM16 LE, mono, 16kHz)
@@ -22,7 +24,7 @@ def pcm16_bytes_to_float32(pcm_bytes: bytes) -> np.ndarray:
     return samples.astype(np.float32) / 32768.0
 
 
-def float32_to_pcm16_bytes(audio: np.ndarray) -> bytes:
+def float32_to_pcm16_bytes(audio: npt.NDArray[np.floating[Any]]) -> bytes:
     """Convert float32 numpy array back to PCM 16-bit bytes.
 
     Input:  np.ndarray float32, values in [-1.0, 1.0]
@@ -33,7 +35,7 @@ def float32_to_pcm16_bytes(audio: np.ndarray) -> bytes:
 
 
 def float32_to_wav_bytes(
-    audio: np.ndarray,
+    audio: npt.NDArray[np.floating[Any]],
     sample_rate: int = 24000,
     channels: int = 1,
     sample_width: int = 2,

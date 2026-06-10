@@ -9,6 +9,9 @@ import logging
 import time
 import uuid
 from datetime import datetime, timezone
+from typing import Any
+
+import numpy.typing as npt
 
 from app import crud_meeting
 from app.core.db import async_session_factory
@@ -624,8 +627,8 @@ class MeetingHandler:
     async def _recognize_and_accumulate(
         self,
         sender_id: uuid.UUID,
-        keypoints,
-        scores,
+        keypoints: npt.NDArray[Any],
+        scores: npt.NDArray[Any],
     ) -> None:
         """Recognize ONE isolated sign and append it to the sentence buffer.
 
@@ -794,7 +797,7 @@ class MeetingHandler:
             return
 
         timestamp = datetime.now(timezone.utc).isoformat()
-        transcript_msg: dict = {
+        transcript_msg: dict[str, Any] = {
             "type": "transcript",
             "text": transcript,
             "is_partial": is_partial,

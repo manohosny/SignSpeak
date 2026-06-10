@@ -137,6 +137,7 @@ async def recover_password(*, session: AsyncSession, email: str) -> Message:
     user = await crud.get_user_by_email(session=session, email=email)
 
     async def _send_real() -> None:
+        assert user is not None  # only invoked inside the `if user:` branch below
         password_reset_token = generate_password_reset_token(email=email)
         email_data = generate_reset_password_email(
             email_to=user.email, email=email, token=password_reset_token

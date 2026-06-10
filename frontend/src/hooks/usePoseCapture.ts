@@ -1,6 +1,6 @@
 import { type RefObject, useCallback, useEffect, useRef, useState } from "react"
 
-import { packKeypointFrame, type PoseFrame } from "@/pose/keypointFrame"
+import { type PoseFrame, packKeypointFrame } from "@/pose/keypointFrame"
 
 interface UsePoseCaptureOptions {
   /** Called with a packed binary keypoint frame ready for WebSocket.sendBinary. */
@@ -61,7 +61,9 @@ export function usePoseCapture({
     const frames = accRef.current
     if (frames.length === 0) return
     const v = videoRef.current
-    onFrameRef.current(packKeypointFrame(frames, v?.videoWidth ?? 0, v?.videoHeight ?? 0))
+    onFrameRef.current(
+      packKeypointFrame(frames, v?.videoWidth ?? 0, v?.videoHeight ?? 0),
+    )
     accRef.current = []
   }, [videoRef])
 
@@ -78,22 +80,27 @@ export function usePoseCapture({
     setIsReady(false)
     setPersonDetected(false)
     setFramesSent(0)
-  }, [flushBatch, videoRef])
+  }, [flushBatch])
 
   const startCapture = useCallback(() => {
     // Needs a live camera; the button is disabled until then, but guard anyway.
     if (!streamRef.current || !videoRef.current || workerRef.current) return
     setError(null)
 
-    const worker = new Worker(new URL("../pose/rtmwWorker.ts", import.meta.url), {
-      type: "module",
-    })
+    const worker = new Worker(
+      new URL("../pose/rtmwWorker.ts", import.meta.url),
+      {
+        type: "module",
+      },
+    )
     workerRef.current = worker
     // Surface worker load/runtime failures instead of hanging silently — the
     // worker pulls onnxruntime-web + a ~143MB model and can fail (WebGPU,
     // network, OOM). Without this the UI would sit on "Loading model" forever.
     worker.onerror = (ev) =>
-      setError(`Pose model failed to load${ev.message ? `: ${ev.message}` : ""}`)
+      setError(
+        `Pose model failed to load${ev.message ? `: ${ev.message}` : ""}`,
+      )
     worker.onmessageerror = () => setError("Pose worker message error")
     worker.onmessage = (e: MessageEvent<WorkerMsg>) => {
       const msg = e.data
@@ -133,7 +140,12 @@ export function usePoseCapture({
       createImageBitmap(v)
         .then((bitmap) => {
           wk.postMessage(
-            { type: "frame", bitmap, width: v.videoWidth, height: v.videoHeight },
+            {
+              type: "frame",
+              bitmap,
+              width: v.videoWidth,
+              height: v.videoHeight,
+            },
             [bitmap],
           )
         })
@@ -174,7 +186,9 @@ export function usePoseCapture({
   }, [videoRef])
 
   const stopCamera = useCallback(() => {
-    streamRef.current?.getTracks().forEach((t) => t.stop())
+    streamRef.current?.getTracks().forEach((t) => {
+      t.stop()
+    })
     streamRef.current = null
     if (videoRef.current) videoRef.current.srcObject = null
     setIsCameraOn(false)

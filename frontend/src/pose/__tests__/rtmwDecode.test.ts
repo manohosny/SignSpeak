@@ -1,13 +1,18 @@
 import { describe, expect, it } from "vitest"
 import {
+  NUM_KEYPOINTS,
+  type PoseFrame,
+  packKeypointFrame,
+  parseKeypointFrame,
+} from "../keypointFrame"
+import {
+  type BBox,
   bboxXyxy2cs,
   decodeSimcc,
   fixAspectRatio,
   getWarpMatrix,
-  type BBox,
   type Point,
 } from "../rtmwDecode"
-import { NUM_KEYPOINTS, packKeypointFrame, parseKeypointFrame, type PoseFrame } from "../keypointFrame"
 import fixture from "./fixtures/rtmpose_decode.json"
 
 // Ground truth produced by the verbatim Python rtmlib math (gen_fixture.py).
@@ -32,7 +37,10 @@ describe("rtmwDecode parity vs Python rtmlib", () => {
   })
 
   it("getWarpMatrix matches cv2.getAffineTransform", () => {
-    const m = getWarpMatrix(fixture.center as Point, fixture.scale_fixed as Point)
+    const m = getWarpMatrix(
+      fixture.center as Point,
+      fixture.scale_fixed as Point,
+    )
     // m = [a,b,tx,c,d,ty]; cv2 M = [[a,b,tx],[c,d,ty]]
     const expected = [...fixture.warp_mat[0], ...fixture.warp_mat[1]]
     for (let i = 0; i < 6; i++) expect(m[i]).toBeCloseTo(expected[i], 4)

@@ -76,7 +76,7 @@ async def refresh_token(
 
 
 @router.post("/login/test-token", response_model=UserPublic)
-async def test_token(current_user: CurrentUser) -> UserPublic:
+async def test_token(current_user: CurrentUser) -> Any:
     return current_user
 
 

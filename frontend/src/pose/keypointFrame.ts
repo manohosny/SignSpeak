@@ -25,7 +25,11 @@ export interface PoseFrame {
 }
 
 /** Pack accumulated per-frame keypoints into one binary frame for the WS. */
-export function packKeypointFrame(frames: PoseFrame[], width: number, height: number): ArrayBuffer {
+export function packKeypointFrame(
+  frames: PoseFrame[],
+  width: number,
+  height: number,
+): ArrayBuffer {
   const t = frames.length
   const buf = new ArrayBuffer(HEADER_SIZE + t * NUM_KEYPOINTS * CHANNELS * 4)
   const view = new DataView(buf)
@@ -54,7 +58,8 @@ export function parseKeypointFrame(buf: ArrayBuffer): {
   height: number
 } {
   const view = new DataView(buf)
-  if (view.getUint8(0) !== KEYPOINT_FRAME_TYPE) throw new Error("bad frame_type")
+  if (view.getUint8(0) !== KEYPOINT_FRAME_TYPE)
+    throw new Error("bad frame_type")
   const t = view.getUint16(2, true)
   const width = view.getUint16(4, true)
   const height = view.getUint16(6, true)

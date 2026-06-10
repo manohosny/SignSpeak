@@ -34,7 +34,7 @@ async def _get_meeting(
 ) -> Meeting | None:
     statement = (
         select(Meeting)
-        .where(*conditions)
+        .where(*conditions)  # type: ignore[arg-type]  # caller passes SQLAlchemy ColumnElement conditions
         .options(selectinload(Meeting.participants))  # type: ignore
     )
     result = await session.exec(statement)

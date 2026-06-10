@@ -14,6 +14,7 @@ import json
 import logging
 import uuid
 from collections.abc import AsyncGenerator
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -28,9 +29,9 @@ class RedisSessionBackend:
     def __init__(self, redis_url: str, server_id: str | None = None) -> None:
         self._redis_url = redis_url
         self._server_id = server_id or str(uuid.uuid4())
-        self._redis = None
-        self._pubsub = None
-        self._heartbeat_task: asyncio.Task | None = None
+        self._redis: Any = None  # redis.asyncio client (untyped lib)
+        self._pubsub: Any = None
+        self._heartbeat_task: asyncio.Task[None] | None = None
         # Track locally-registered participants for heartbeat refresh
         self._local_participants: dict[
             uuid.UUID, set[uuid.UUID]
@@ -117,7 +118,7 @@ class RedisSessionBackend:
     async def get_participants(
         self,
         meeting_id: uuid.UUID,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         if not self._redis:
             return []
 
@@ -136,7 +137,7 @@ class RedisSessionBackend:
     async def publish_message(
         self,
         meeting_id: uuid.UUID,
-        message: dict,
+        message: dict[str, Any],
         exclude_user: uuid.UUID | None = None,
     ) -> None:
         if not self._redis:
@@ -155,7 +156,7 @@ class RedisSessionBackend:
     async def subscribe(
         self,
         meeting_id: uuid.UUID,
-    ) -> AsyncGenerator[dict, None]:
+    ) -> AsyncGenerator[dict[str, Any], None]:
         """Subscribe to messages for a meeting.
 
         Yields message dicts from other servers (skips self-originated).

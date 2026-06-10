@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import AsyncGenerator
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 
 @runtime_checkable
@@ -38,7 +38,7 @@ class SessionBackend(Protocol):
     async def get_participants(
         self,
         meeting_id: uuid.UUID,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Get all participants in a meeting.
 
         Returns list of dicts with keys: user_id, display_name, role, server_id.
@@ -52,7 +52,7 @@ class SessionBackend(Protocol):
     async def publish_message(
         self,
         meeting_id: uuid.UUID,
-        message: dict,
+        message: dict[str, Any],
         exclude_user: uuid.UUID | None = None,
     ) -> None:
         """Publish a message to all participants in a meeting.
@@ -65,7 +65,7 @@ class SessionBackend(Protocol):
     async def subscribe(
         self,
         meeting_id: uuid.UUID,
-    ) -> AsyncGenerator[dict, None]:
+    ) -> AsyncGenerator[dict[str, Any], None]:
         """Subscribe to messages for a meeting.
 
         Only used by Redis backend for cross-server message routing.

@@ -1,4 +1,5 @@
 import uuid
+from typing import Any
 
 from fastapi import APIRouter, Depends, Query, status
 
@@ -45,14 +46,14 @@ async def read_users(
     response_model=UserPublic,
     status_code=status.HTTP_201_CREATED,
 )
-async def create_user(*, session: SessionDep, user_in: UserCreate) -> UserPublic:
+async def create_user(*, session: SessionDep, user_in: UserCreate) -> Any:
     return await user_service.create_user(session=session, user_in=user_in)
 
 
 @router.patch("/me", response_model=UserPublic)
 async def update_user_me(
     *, session: SessionDep, user_in: UserUpdateMe, current_user: CurrentUser
-) -> UserPublic:
+) -> Any:
     return await user_service.update_user_me(
         session=session, user_in=user_in, current_user=current_user
     )
@@ -68,7 +69,7 @@ async def update_password_me(
 
 
 @router.get("/me", response_model=UserPublic)
-async def read_user_me(current_user: CurrentUser) -> UserPublic:
+async def read_user_me(current_user: CurrentUser) -> Any:
     return current_user
 
 
@@ -83,14 +84,14 @@ async def delete_user_me(session: SessionDep, current_user: CurrentUser) -> Mess
     dependencies=[Depends(auth_rate_limit)],
     status_code=status.HTTP_201_CREATED,
 )
-async def register_user(session: SessionDep, user_in: UserRegister) -> UserPublic:
+async def register_user(session: SessionDep, user_in: UserRegister) -> Any:
     return await user_service.register_user(session=session, user_in=user_in)
 
 
 @router.get("/{user_id}", response_model=UserPublic)
 async def read_user_by_id(
     user_id: uuid.UUID, session: SessionDep, current_user: CurrentUser
-) -> UserPublic:
+) -> Any:
     return await user_service.get_user_by_id(
         session=session, user_id=user_id, current_user=current_user
     )
@@ -106,7 +107,7 @@ async def update_user(
     session: SessionDep,
     user_id: uuid.UUID,
     user_in: UserUpdate,
-) -> UserPublic:
+) -> Any:
     return await user_service.update_user(
         session=session, user_id=user_id, user_in=user_in
     )

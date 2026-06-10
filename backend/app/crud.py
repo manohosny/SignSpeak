@@ -1,4 +1,5 @@
 import uuid
+from typing import Any
 
 from sqlmodel import col, func, select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -82,7 +83,7 @@ async def delete_user(*, session: AsyncSession, user: User) -> None:
 
 
 async def update_user_partial(
-    *, session: AsyncSession, db_user: User, update_data: dict
+    *, session: AsyncSession, db_user: User, update_data: dict[str, Any]
 ) -> User:
     db_user.sqlmodel_update(update_data)
     session.add(db_user)

@@ -20,8 +20,10 @@ import logging
 import os
 import time
 from collections.abc import AsyncGenerator
+from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 
 from app.ml.audio_utils import float32_to_wav_bytes
 
@@ -39,7 +41,7 @@ DEFAULT_LANG = "en-us"
 _segmenter = None  # lazy-initialized, warmed in load_model()
 
 
-def _get_segmenter():  # type: ignore[no-untyped-def]
+def _get_segmenter() -> Any:
     global _segmenter
     if _segmenter is None:
         import pysbd
@@ -64,7 +66,7 @@ class TTSEngine:
     """
 
     def __init__(self) -> None:
-        self._kokoro = None
+        self._kokoro: Any = None
         self._loaded = False
 
     def load_model(
@@ -127,7 +129,7 @@ class TTSEngine:
             raise
 
     @staticmethod
-    def _get_providers() -> list[str | tuple[str, dict]]:
+    def _get_providers() -> list[str | tuple[str, dict[str, Any]]]:
         """Build ordered list of ONNX execution providers.
 
         Priority: TensorRT > CUDA > CPU. Each GPU provider is configured
@@ -136,7 +138,7 @@ class TTSEngine:
         import onnxruntime as rt
 
         available = rt.get_available_providers()
-        preferred: list[str | tuple[str, dict]] = []
+        preferred: list[str | tuple[str, dict[str, Any]]] = []
 
         if "TensorrtExecutionProvider" in available:
             preferred.append(
@@ -216,9 +218,9 @@ class TTSEngine:
 
     async def _collect_stream_chunks(
         self, text: str, voice: str, speed: float, lang: str
-    ) -> list[tuple[np.ndarray, int]]:
+    ) -> list[tuple[npt.NDArray[Any], int]]:
         """Collect all chunks from Kokoro's async stream."""
-        chunks: list[tuple[np.ndarray, int]] = []
+        chunks: list[tuple[npt.NDArray[Any], int]] = []
         stream = self._kokoro.create_stream(
             text, voice=voice, speed=speed, lang=lang
         )

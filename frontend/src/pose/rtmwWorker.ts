@@ -15,9 +15,10 @@
 import * as ort from "onnxruntime-web"
 
 import {
+  type BBox,
   bboxXyxy2cs,
-  decodeSimcc,
   DET_INPUT,
+  decodeSimcc,
   fixAspectRatio,
   getWarpMatrix,
   letterboxRatio,
@@ -27,7 +28,6 @@ import {
   POSE_MEAN,
   POSE_STD,
   selectPersonBox,
-  type BBox,
 } from "./rtmwDecode"
 
 type InMsg =
@@ -47,13 +47,22 @@ async function init(modelBase: string): Promise<void> {
   // Pin the wasm assets to a version-matched CDN so the glue JS and .wasm agree.
   ort.env.wasm.wasmPaths = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ort.env.versions.web}/dist/`
   // Prefer WebGPU; fall back to WASM where unavailable.
-  const eps: ort.InferenceSession.SessionOptions["executionProviders"] = ["webgpu", "wasm"]
-  detSession = await ort.InferenceSession.create(`${modelBase}/yolox_tiny.onnx`, {
-    executionProviders: eps,
-  })
-  poseSession = await ort.InferenceSession.create(`${modelBase}/rtmw_dw_l_m.onnx`, {
-    executionProviders: eps,
-  })
+  const eps: ort.InferenceSession.SessionOptions["executionProviders"] = [
+    "webgpu",
+    "wasm",
+  ]
+  detSession = await ort.InferenceSession.create(
+    `${modelBase}/yolox_tiny.onnx`,
+    {
+      executionProviders: eps,
+    },
+  )
+  poseSession = await ort.InferenceSession.create(
+    `${modelBase}/rtmw_dw_l_m.onnx`,
+    {
+      executionProviders: eps,
+    },
+  )
 }
 
 /** Build a BGR NCHW float32 tensor from RGBA pixels, optional per-channel norm. */
@@ -116,8 +125,19 @@ async function pose(
   poseCtx.drawImage(bitmap, 0, 0)
   poseCtx.setTransform(1, 0, 0, 1, 0, 0)
   const { data } = poseCtx.getImageData(0, 0, POSE_INPUT_W, POSE_INPUT_H)
-  const input = toBgrNchw(data, POSE_INPUT_W, POSE_INPUT_H, POSE_MEAN as number[], POSE_STD)
-  const tensor = new ort.Tensor("float32", input, [1, 3, POSE_INPUT_H, POSE_INPUT_W])
+  const input = toBgrNchw(
+    data,
+    POSE_INPUT_W,
+    POSE_INPUT_H,
+    POSE_MEAN as number[],
+    POSE_STD,
+  )
+  const tensor = new ort.Tensor("float32", input, [
+    1,
+    3,
+    POSE_INPUT_H,
+    POSE_INPUT_W,
+  ])
   const out = await poseSession!.run({ [poseSession!.inputNames[0]]: tensor })
   const simccX = out.simcc_x.data as Float32Array
   const simccY = out.simcc_y.data as Float32Array

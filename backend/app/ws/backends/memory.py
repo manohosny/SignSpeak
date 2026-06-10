@@ -10,6 +10,7 @@ import logging
 import uuid
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +81,7 @@ class MemorySessionBackend:
     async def get_participants(
         self,
         meeting_id: uuid.UUID,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         state = self._meetings.get(meeting_id)
         if not state:
             return []
@@ -103,7 +104,7 @@ class MemorySessionBackend:
     async def publish_message(
         self,
         meeting_id: uuid.UUID,
-        message: dict,
+        message: dict[str, Any],
         exclude_user: uuid.UUID | None = None,
     ) -> None:
         # In memory mode, publishing is a no-op — ConnectionManager
@@ -113,7 +114,7 @@ class MemorySessionBackend:
     async def subscribe(
         self,
         meeting_id: uuid.UUID,
-    ) -> AsyncGenerator[dict, None]:
+    ) -> AsyncGenerator[dict[str, Any], None]:
         # Memory backend has no cross-server messages to receive.
         return
         yield  # pragma: no cover — makes this a valid async generator

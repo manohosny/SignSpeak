@@ -33,6 +33,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +68,9 @@ def _detect_device(preferred: str = "auto") -> str:
 # identically to training. See UNI_SIGN_MPS_NOTES.md sections (a)/(b).
 
 
-def _crop_scale(motion: np.ndarray, thr: float):
+def _crop_scale(
+    motion: npt.NDArray[Any], thr: float
+) -> tuple[npt.NDArray[Any], float, list[float] | None]:
     """Body-bbox normalize to [-1, 1]; returns (result, scale, offset)."""
     result = copy.deepcopy(motion)
     valid_coords = motion[motion[..., 2] > thr][:, :2]
@@ -87,7 +90,9 @@ def _crop_scale(motion: np.ndarray, thr: float):
     return result, scale, [xs, ys]
 
 
-def _load_part_kp(skeletons: np.ndarray, confs: np.ndarray) -> dict[str, Any]:
+def _load_part_kp(
+    skeletons: npt.NDArray[Any], confs: npt.NDArray[Any]
+) -> dict[str, Any]:
     """Split 133 keypoints into the 4 ST-GCN streams (body/left/right/face_all).
 
     skeletons: (T, 1, 133, 2)   confs: (T, 1, 133)   (person axis = 1)
@@ -121,15 +126,15 @@ def _load_part_kp(skeletons: np.ndarray, confs: np.ndarray) -> dict[str, Any]:
                 confidence = conf[idx]
             kps.append(hand_kp2d)
             confidences.append(confidence)
-        kps = np.stack(kps, axis=0)
-        confidences = np.stack(confidences, axis=0)
+        kps_arr = np.stack(kps, axis=0)
+        conf_arr = np.stack(confidences, axis=0)
         if part == "body":
             result, scale, _ = _crop_scale(
-                np.concatenate([kps, confidences[..., None]], axis=-1), thr
+                np.concatenate([kps_arr, conf_arr[..., None]], axis=-1), thr
             )
         else:
             assert scale is not None
-            result = np.concatenate([kps, confidences[..., None]], axis=-1)
+            result = np.concatenate([kps_arr, conf_arr[..., None]], axis=-1)
             if scale == 0:
                 result = np.zeros(result.shape)
             else:
@@ -201,7 +206,7 @@ def _uni_sign_path(repo_dir: str) -> Iterator[None]:
             sys.path.remove(repo_dir)
 
 
-def _subsample_indices(duration: int, max_frames: int) -> np.ndarray:
+def _subsample_indices(duration: int, max_frames: int) -> npt.NDArray[Any]:
     """Deterministic uniform subsample when over the model's T cap."""
     if duration > max_frames:
         return np.linspace(0, duration - 1, max_frames).round().astype(int)
@@ -221,7 +226,7 @@ class SignToTextEngine:
     """
 
     def __init__(self) -> None:
-        self._model = None
+        self._model: Any = None  # Uni_Sign model (untyped vendored lib)
         self._device: str = "cpu"
         self._num_beams: int = 1
         self._max_new_tokens: int = 100
@@ -317,8 +322,8 @@ class SignToTextEngine:
 
     async def translate_keypoints(
         self,
-        keypoints: np.ndarray,
-        scores: np.ndarray,
+        keypoints: npt.NDArray[Any],
+        scores: npt.NDArray[Any],
     ) -> str | None:
         """Translate a keypoint clip to English (async).
 
@@ -332,7 +337,7 @@ class SignToTextEngine:
             return "Mock: hello how are you"
         return await asyncio.to_thread(self._translate_sync, keypoints, scores)
 
-    def _translate_sync(self, keypoints: np.ndarray, scores: np.ndarray) -> str | None:
+    def _translate_sync(self, keypoints: npt.NDArray[Any], scores: npt.NDArray[Any]) -> str | None:
         import torch
 
         try:

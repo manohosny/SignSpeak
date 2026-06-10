@@ -12,6 +12,7 @@ import asyncio
 import logging
 import uuid
 from dataclasses import dataclass
+from typing import Any
 
 from fastapi import WebSocket
 
@@ -45,7 +46,7 @@ class ConnectionManager:
         # Per-meeting subscribe tasks: forward backend pub/sub messages to
         # local WebSockets. Started on first local participant, cancelled
         # when the last leaves. Memory backend's subscribe is a no-op.
-        self._subscribe_tasks: dict[uuid.UUID, asyncio.Task] = {}
+        self._subscribe_tasks: dict[uuid.UUID, asyncio.Task[None]] = {}
 
     def set_backend(self, backend: object) -> None:
         """Switch to a different session backend (e.g., Redis)."""
@@ -59,7 +60,9 @@ class ConnectionManager:
             self._local[meeting_id] = {}
         return self._local[meeting_id]
 
-    def get_or_create_session(self, meeting_id: uuid.UUID) -> dict:
+    def get_or_create_session(
+        self, meeting_id: uuid.UUID
+    ) -> dict[uuid.UUID, Participant]:
         """For backward compatibility with code that calls this method."""
         return self._get_local_session(meeting_id)
 
@@ -137,7 +140,7 @@ class ConnectionManager:
         await self._backend.unregister_participant(meeting_id, user_id)
 
     async def send_json_to_user(
-        self, meeting_id: uuid.UUID, user_id: uuid.UUID, data: dict
+        self, meeting_id: uuid.UUID, user_id: uuid.UUID, data: dict[str, Any]
     ) -> bool:
         local = self._local.get(meeting_id)
         if not local:
@@ -175,7 +178,7 @@ class ConnectionManager:
     async def broadcast_json(
         self,
         meeting_id: uuid.UUID,
-        data: dict,
+        data: dict[str, Any],
         exclude: uuid.UUID | None = None,
     ) -> None:
         """Broadcast JSON to all participants.
@@ -208,7 +211,7 @@ class ConnectionManager:
         # Run local delivery and backend publish concurrently
         await asyncio.gather(_local_send(), _backend_publish())
 
-    async def _safe_send_json(self, ws: WebSocket, data: dict) -> None:
+    async def _safe_send_json(self, ws: WebSocket, data: dict[str, Any]) -> None:
         try:
             await ws.send_json(data)
         except Exception as e:
@@ -250,7 +253,7 @@ class ConnectionManager:
                 e,
             )
 
-    async def broadcast_all(self, data: dict) -> None:
+    async def broadcast_all(self, data: dict[str, Any]) -> None:
         """Send a JSON frame to every active local WebSocket.
 
         Used at graceful shutdown so clients can transition to a

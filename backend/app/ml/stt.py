@@ -19,8 +19,10 @@ import tempfile
 import threading
 import time
 import warnings
+from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +35,7 @@ DEFAULT_SILENCE_THRESHOLD = 0.01
 DEFAULT_MODEL = "nvidia/parakeet-tdt-0.6b-v3"
 
 
-def _rms(audio: np.ndarray) -> float:
+def _rms(audio: npt.NDArray[np.floating[Any]]) -> float:
     if len(audio) == 0:
         return 0.0
     return float(np.sqrt(np.mean(audio**2)))
@@ -84,7 +86,7 @@ class STTEngine:
     """
 
     def __init__(self) -> None:
-        self._model = None
+        self._model: Any = None
         self._device: str = "cpu"
         self._loaded = False
 
@@ -140,7 +142,7 @@ class STTEngine:
 
         self._loaded = True
 
-    async def transcribe(self, audio: np.ndarray) -> str | None:
+    async def transcribe(self, audio: npt.NDArray[np.floating[Any]]) -> str | None:
         """Transcribe float32 audio (16kHz mono) via thread pool.
 
         Returns text or None if too short / empty.
@@ -157,7 +159,7 @@ class STTEngine:
 
         return await asyncio.to_thread(self._transcribe_sync, audio)
 
-    def _transcribe_sync(self, audio: np.ndarray) -> str | None:
+    def _transcribe_sync(self, audio: npt.NDArray[np.floating[Any]]) -> str | None:
         """Sync transcription — passes NumPy arrays directly to NeMo.
 
         Falls back to temp-file path if direct array input fails.
@@ -197,7 +199,7 @@ class STTEngine:
             # Zero audio data to prevent leaking speech in crash dumps
             audio.fill(0)
 
-    def _transcribe_sync_file(self, audio: np.ndarray) -> str | None:
+    def _transcribe_sync_file(self, audio: npt.NDArray[np.floating[Any]]) -> str | None:
         """Fallback: transcription via temp file for older NeMo versions."""
         import soundfile as sf
 
@@ -347,7 +349,7 @@ class StreamingSTTBuffer:
         """Current utterance ID, or None if buffer is empty."""
         return self._current_utterance_id
 
-    def feed(self, audio: np.ndarray) -> None:
+    def feed(self, audio: npt.NDArray[np.floating[Any]]) -> None:
         """Append audio samples. Thread-safe."""
         with self._lock:
             self._buffer = np.concatenate(
@@ -382,7 +384,13 @@ class StreamingSTTBuffer:
     def duration(self) -> float:
         return len(self._buffer) / self.sample_rate
 
-    def get_chunk(self) -> np.ndarray | tuple[np.ndarray, str] | None:
+    def get_chunk(
+        self,
+    ) -> (
+        npt.NDArray[np.floating[Any]]
+        | tuple[npt.NDArray[np.floating[Any]], str]
+        | None
+    ):
         """Extract one chunk.
 
         Fixed mode: returns np.ndarray or None (silent).
@@ -393,7 +401,7 @@ class StreamingSTTBuffer:
             return self._get_chunk_fixed()
         return self._get_chunk_utterance_cap()
 
-    def _get_chunk_fixed(self) -> np.ndarray | None:
+    def _get_chunk_fixed(self) -> npt.NDArray[np.floating[Any]] | None:
         """Original fixed-window chunk extraction."""
         with self._lock:
             if len(self._buffer) < self.chunk_samples:
@@ -417,7 +425,9 @@ class StreamingSTTBuffer:
 
         return full_audio
 
-    def _get_chunk_utterance_cap(self) -> tuple[np.ndarray, str] | None:
+    def _get_chunk_utterance_cap(
+        self,
+    ) -> tuple[npt.NDArray[np.floating[Any]], str] | None:
         """Safety-cap flush for utterance mode (continuous speech > max).
 
         No RMS silence check here — in utterance mode, the frontend VAD
@@ -437,7 +447,7 @@ class StreamingSTTBuffer:
 
         return (audio, uid)
 
-    def flush_utterance(self) -> tuple[np.ndarray, str] | None:
+    def flush_utterance(self) -> tuple[npt.NDArray[np.floating[Any]], str] | None:
         """Flush buffer on frontend utterance_end signal.
 
         Returns (audio, utterance_id) or None if buffer too short (< 100ms).
@@ -455,7 +465,7 @@ class StreamingSTTBuffer:
 
         return (audio, uid)
 
-    def peek_utterance(self) -> tuple[np.ndarray, str] | None:
+    def peek_utterance(self) -> tuple[npt.NDArray[np.floating[Any]], str] | None:
         """Get a copy of accumulated audio without consuming it.
 
         Used for partial (interim) transcripts.
@@ -467,7 +477,13 @@ class StreamingSTTBuffer:
             uid = self._current_utterance_id or ""
         return (audio, uid)
 
-    def flush(self) -> np.ndarray | tuple[np.ndarray, str] | None:
+    def flush(
+        self,
+    ) -> (
+        npt.NDArray[np.floating[Any]]
+        | tuple[npt.NDArray[np.floating[Any]], str]
+        | None
+    ):
         """Get remaining audio. Call when speaker stops or meeting ends.
 
         Fixed mode: returns np.ndarray or None.

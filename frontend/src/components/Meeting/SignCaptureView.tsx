@@ -93,9 +93,13 @@ export function SignCaptureView({
         {isCapturing && isReady && (
           <div className="absolute bottom-2 left-2 rounded bg-black/60 px-2 py-1 text-xs text-white">
             {personDetected ? (
-              <span className="text-green-300">● detected · {framesSent} frames</span>
+              <span className="text-green-300">
+                ● detected · {framesSent} frames
+              </span>
             ) : (
-              <span className="text-amber-300">○ no person — center yourself, good lighting</span>
+              <span className="text-amber-300">
+                ○ no person — center yourself, good lighting
+              </span>
             )}
           </div>
         )}
@@ -132,7 +136,12 @@ export function SignCaptureView({
             )}
           </Button>
         </div>
-        <span className={cn("text-sm", cameraError || error ? "text-red-500" : "text-muted-foreground")}>
+        <span
+          className={cn(
+            "text-sm",
+            cameraError || error ? "text-red-500" : "text-muted-foreground",
+          )}
+        >
           {status}
         </span>
       </div>
