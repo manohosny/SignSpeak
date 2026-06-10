@@ -8,10 +8,14 @@ out of frame" = a sign boundary (see ``hands_at_rest``). Only SIGNING frames are
 accumulated, so each emitted clip is rest-free — what ISLR recognizes well.
 
 Flush triggers:
-  1. Server (auto): hands drop to rest for >= ``rest_debounce_ms`` after a sign
-     of >= ``min_frames`` frames -> flush that clip for live per-sign recognition.
-  2. Safety cap: ``max_frames`` force-flushes a runaway (never-resting) clip.
-  3. Client cue: the reader taps stop -> the handler flushes + finalizes (speak).
+  1. Pause (auto): after >= ``min_frames`` of real signing motion, the hands go
+     still for >= ``pause_ms`` (hands kept UP, in frame) -> flush. This is the
+     natural per-sign boundary for seated/real-life use, where dropping hands to
+     the sides would take them out of the camera frame.
+  2. Rest (auto): hands drop out of frame / to rest for >= ``rest_debounce_ms``
+     after a sign of >= ``min_frames`` frames -> flush.
+  3. Safety cap: ``max_frames`` force-flushes a runaway (never-pausing) clip.
+  4. Client cue: the reader taps stop -> the handler flushes + finalizes (speak).
 
 Frames arrive batched inside one binary WebSocket frame; this buffer classifies
 each frame and accumulates the signing ones across batches until a flush fires.
@@ -74,18 +78,27 @@ class SignSegmentBuffer:
         rest_debounce_ms: int = 250,
         rest_drop_margin: float = 0.15,
         rest_hand_conf: float = 0.3,
-        motion_window: int = 6,  # fixed window for the debug-only motion_energy() trace
+        pause_ms: int = 350,
+        motion_threshold: float = 0.04,
+        motion_window: int = 6,  # frames sampled by motion_energy()
     ) -> None:
         self.max_frames = max_frames
         self.min_frames = min_frames
         self.rest_debounce_ms = rest_debounce_ms
         self.rest_drop_margin = rest_drop_margin
         self.rest_hand_conf = rest_hand_conf
+        self.pause_ms = pause_ms
+        self.motion_threshold = motion_threshold
         self.motion_window = motion_window
         self._kps: list[np.ndarray] = []     # each (133, 2) — SIGNING frames only
         self._scores: list[np.ndarray] = []  # each (133,)
         # now_ms of the most recent SIGNING frame; rest is measured from here.
         self._last_signing_ms: float | None = None
+        # now_ms of the most recent ACTIVE-motion frame, and whether this clip
+        # has seen real signing motion yet. A still pause ends a sign only after
+        # genuine motion, so a motionless hold never flushes an empty "sign".
+        self._last_motion_ms: float | None = None
+        self._saw_motion: bool = False
 
     def __len__(self) -> int:
         return len(self._kps)
@@ -95,11 +108,14 @@ class SignSegmentBuffer:
 
         Only SIGNING frames (hands up) are accumulated; REST frames (hands
         dropped to the sides) are discarded so each clip stays rest-free.
+        Also tracks hand motion so a still pause (hands kept up, in frame) can
+        end a sign without requiring the hands to leave the frame.
         """
         keypoints = np.asarray(keypoints, dtype=np.float32)
         scores = np.asarray(scores, dtype=np.float32)
         if keypoints.ndim != 3 or keypoints.shape[1:] != (NUM_KEYPOINTS, 2):
             raise ValueError(f"bad keypoints shape {keypoints.shape}")
+        appended = False
         for i in range(keypoints.shape[0]):
             if hands_at_rest(
                 keypoints[i],
@@ -111,6 +127,12 @@ class SignSegmentBuffer:
             self._kps.append(keypoints[i])
             self._scores.append(scores[i])
             self._last_signing_ms = now_ms
+            appended = True
+        # After accumulating this batch, refresh the active-motion timestamp. A
+        # quiet stretch (no high-motion frame for pause_ms) marks a sign boundary.
+        if appended and self.motion_energy(self.motion_window) >= self.motion_threshold:
+            self._saw_motion = True
+            self._last_motion_ms = now_ms
 
     def motion_energy(self, window: int) -> float:
         """Mean per-joint hand displacement over the last `window` frames.
@@ -130,11 +152,13 @@ class SignSegmentBuffer:
         return float(np.mean(diffs))
 
     def should_flush(self, now_ms: float) -> bool:
-        """A clean single-sign clip is ready when the hands have dropped to rest.
+        """A clean single-sign clip is ready when the signing has paused.
 
         - hard cap: at/over the model's frame budget, flush now;
-        - boundary: after >= min_frames signing frames, hands at rest (no new
-          signing frame) for >= rest_debounce_ms.
+        - rest boundary: after >= min_frames signing frames, hands at rest
+          (no new signing frame, e.g. dropped out of frame) for >= rest_debounce_ms;
+        - pause boundary: after real signing motion, the hands go still
+          (no active-motion frame) for >= pause_ms while staying in frame.
         """
         if len(self._kps) == 0:
             return False
@@ -142,9 +166,16 @@ class SignSegmentBuffer:
             return True
         if len(self._kps) < self.min_frames:
             return False
-        if self._last_signing_ms is None:
-            return False
-        return (now_ms - self._last_signing_ms) >= self.rest_debounce_ms
+        if (
+            self._last_signing_ms is not None
+            and (now_ms - self._last_signing_ms) >= self.rest_debounce_ms
+        ):
+            return True
+        return (
+            self._saw_motion
+            and self._last_motion_ms is not None
+            and (now_ms - self._last_motion_ms) >= self.pause_ms
+        )
 
     def flush(self) -> tuple[np.ndarray, np.ndarray] | None:
         """Return accumulated (keypoints (T,133,2), scores (T,133)) and clear.
@@ -162,3 +193,5 @@ class SignSegmentBuffer:
         self._kps.clear()
         self._scores.clear()
         self._last_signing_ms = None
+        self._last_motion_ms = None
+        self._saw_motion = False

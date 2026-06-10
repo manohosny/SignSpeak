@@ -111,6 +111,43 @@ class TestFlushTriggers:
     def test_empty_never_flushes(self):
         assert not SignSegmentBuffer().should_flush(now_ms=10_000)
 
+    def test_pause_after_motion_triggers_flush(self):
+        # Hands stay UP (never drop to rest) but go still after real signing
+        # motion -> the pause ends the sign without the hands leaving the frame.
+        buf = SignSegmentBuffer(
+            min_frames=4, rest_debounce_ms=100_000,
+            pause_ms=350, motion_threshold=0.005,
+        )
+        sig_kp, sig_sc = _signing_frames(6)         # energy ~0.007 > 0.005
+        buf.feed(sig_kp, sig_sc, now_ms=1000)        # last active motion at t=1000
+        assert buf._saw_motion                       # real motion registered
+        assert not buf.should_flush(now_ms=1200)     # 200ms still < pause_ms
+        assert buf.should_flush(now_ms=1400)         # 400ms still >= pause_ms
+
+    def test_motionless_hold_never_flushes(self):
+        # A hold that never produced real signing motion must not emit an empty
+        # "sign" on the pause path (guards against flushing a motionless clip).
+        buf = SignSegmentBuffer(
+            min_frames=4, rest_debounce_ms=100_000,
+            pause_ms=350, motion_threshold=0.05,
+        )
+        sig_kp, sig_sc = _signing_frames(8)          # energy ~0.007 < 0.05
+        buf.feed(sig_kp, sig_sc, now_ms=1000)
+        assert not buf._saw_motion
+        assert not buf.should_flush(now_ms=10_000)
+
+    def test_flush_rearms_pause_state(self):
+        # After a flush, a fresh motionless stretch must not immediately re-flush.
+        buf = SignSegmentBuffer(
+            min_frames=4, rest_debounce_ms=100_000,
+            pause_ms=350, motion_threshold=0.005,
+        )
+        buf.feed(*_signing_frames(6), now_ms=1000)
+        assert buf.should_flush(now_ms=1400)
+        buf.flush()
+        assert not buf._saw_motion                   # motion state re-armed
+        assert not buf.should_flush(now_ms=5000)
+
 
 class TestMotionEnergy:
     def test_signing_has_motion(self):

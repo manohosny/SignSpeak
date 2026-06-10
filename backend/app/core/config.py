@@ -120,11 +120,20 @@ class Settings(BaseSettings):
     # Sign segmentation (rest-pose state machine — see SignSegmentBuffer).
     # A sign clip must reach this many SIGNING frames before it can flush; also
     # a hard floor before translation (gates accidental brief hand-raises).
-    SIGN_TO_TEXT_MIN_FRAMES: int = 8        # min SIGNING frames for a real sign clip
+    SIGN_TO_TEXT_MIN_FRAMES: int = 18       # min SIGNING frames for a real sign clip (gates sub-sign fragments)
     # ── Rest-pose segmentation (hands up = signing, hands to sides = boundary) ──
     SIGN_TO_TEXT_REST_DROP_MARGIN: float = 0.15  # wrist-below-shoulder margin when hips out of frame
     SIGN_TO_TEXT_REST_HAND_CONF: float = 0.3     # mean hand-kp confidence below which hands are "out of frame"
     SIGN_TO_TEXT_REST_DEBOUNCE_MS: int = 250     # sustained rest after a sign before flushing
+    # ── Motion-pause segmentation (hands stay UP & in frame; a still pause ends
+    #    a sign). Primary per-sign boundary for real-life seated use where
+    #    dropping hands to the sides takes them out of the camera frame. ──
+    SIGN_TO_TEXT_PAUSE_MS: int = 500             # hands-still (in frame) duration that ends a sign
+    # Below this mean hand-kp displacement signing counts as "paused". Tuned to
+    # real keypoints: active signing ~0.04-0.08, transitions ~0.015-0.02, true
+    # stop ~0.002-0.005 — sit the threshold between the stop and transition
+    # bands so only a genuine stop ends a sign (avoids cutting mid-sign).
+    SIGN_TO_TEXT_MOTION_THRESHOLD: float = 0.012
     # Mean hand-keypoint detection confidence below which a segment is treated
     # as too-poor-to-translate (suppresses hallucinations from bad pose input).
     SIGN_TO_TEXT_MIN_CONFIDENCE: float = 0.3

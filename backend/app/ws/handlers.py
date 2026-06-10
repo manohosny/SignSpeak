@@ -60,6 +60,8 @@ def _new_sign_segment_buffer() -> SignSegmentBuffer:
             rest_debounce_ms=settings.SIGN_TO_TEXT_REST_DEBOUNCE_MS,
             rest_drop_margin=settings.SIGN_TO_TEXT_REST_DROP_MARGIN,
             rest_hand_conf=settings.SIGN_TO_TEXT_REST_HAND_CONF,
+            pause_ms=settings.SIGN_TO_TEXT_PAUSE_MS,
+            motion_threshold=settings.SIGN_TO_TEXT_MOTION_THRESHOLD,
         )
     except Exception:
         return SignSegmentBuffer()
@@ -556,16 +558,24 @@ class MeetingHandler:
         async with self._sign_lock:
             self.sign_segment_buffer.feed(keypoints, scores, now_ms)
             flush = self.sign_segment_buffer.should_flush(now_ms)
-            # Debug-level motion trace (raise to INFO to inspect hand motion vs
-            # the rest-pose boundary decisions during real signing). Segmentation
-            # is rest-pose based, not motion-threshold based — this is diagnostic only.
+            # Segmentation diagnostic (raise to INFO to tune the rest/pause
+            # thresholds against real keypoints). hand_conf gates poor input;
+            # wl/wr/sh/hip drive rest detection; `mot` (mean hand displacement)
+            # drives the pause boundary — a sign flushes when `mot` stays below
+            # SIGN_TO_TEXT_MOTION_THRESHOLD for pause_ms.
+            kp0, sc0 = keypoints[0], scores[0]
             logger.debug(
-                "kp seg: +%d -> buffered=%d motion=%.4f flush=%s",
-                keypoints.shape[0],
-                len(self.sign_segment_buffer),
+                "seg-dbg: hand_conf=%.3f wl=%.3f wr=%.3f sh=%.3f hip=%.3f hipc=%.3f mot=%.4f -> buffered=%d flush=%s",
+                float(scores[:, 91:133].mean()),
+                float(kp0[9, 1]),
+                float(kp0[10, 1]),
+                float((kp0[5, 1] + kp0[6, 1]) / 2.0),
+                float((kp0[11, 1] + kp0[12, 1]) / 2.0),
+                float((sc0[11] + sc0[12]) / 2.0),
                 self.sign_segment_buffer.motion_energy(
                     self.sign_segment_buffer.motion_window
                 ),
+                len(self.sign_segment_buffer),
                 flush,
             )
             if not flush:
