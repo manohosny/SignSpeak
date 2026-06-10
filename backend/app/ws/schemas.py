@@ -9,7 +9,7 @@ unknown / malformed payloads up-front.
 
 from __future__ import annotations
 
-from typing import Annotated, Literal, Union
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -51,13 +51,6 @@ class WsTextMessage(_WsMessageBase):
 
 
 WsClientMessage = Annotated[
-    Union[
-        WsAuthMessage,
-        WsGlossMessage,
-        WsLeaveMessage,
-        WsEndMeetingMessage,
-        WsControlMessage,
-        WsTextMessage,
-    ],
+    WsAuthMessage | WsGlossMessage | WsLeaveMessage | WsEndMeetingMessage | WsControlMessage | WsTextMessage,
     Field(discriminator="type"),
 ]

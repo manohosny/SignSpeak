@@ -49,4 +49,7 @@ def test_rest_pose_segmentation_defaults():
     assert settings.SIGN_TO_TEXT_REST_DROP_MARGIN == 0.15
     assert settings.SIGN_TO_TEXT_REST_HAND_CONF == 0.3
     assert settings.SIGN_TO_TEXT_REST_DEBOUNCE_MS == 250
-    assert settings.SIGN_TO_TEXT_MIN_FRAMES == 8
+    assert settings.SIGN_TO_TEXT_MIN_FRAMES == 18
+    # Motion-pause segmentation (sign ends on a still pause, hands kept in frame).
+    assert settings.SIGN_TO_TEXT_PAUSE_MS == 500
+    assert settings.SIGN_TO_TEXT_MOTION_THRESHOLD == 0.012

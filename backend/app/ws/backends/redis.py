@@ -163,7 +163,6 @@ class RedisSessionBackend:
         if not self._redis:
             return
 
-        import redis.asyncio as aioredis
 
         pubsub = self._redis.pubsub()
         channel = self._channel_name(meeting_id)

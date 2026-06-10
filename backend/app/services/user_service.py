@@ -24,8 +24,8 @@ from app.models import (
     UserUpdate,
     UserUpdateMe,
 )
-from app.services.email_service import generate_new_account_email, send_email
 from app.services.auth_service import generate_password_reset_token
+from app.services.email_service import generate_new_account_email, send_email
 
 
 async def _ensure_email_available(

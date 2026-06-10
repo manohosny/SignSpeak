@@ -36,7 +36,7 @@ def models_ready() -> bool:
 _AUDIO_VAR_KEYWORDS = ("audio", "pcm", "wav", "buffer", "chunk")
 
 
-def _scrub_sentry_event(event: dict, hint: dict) -> dict:
+def _scrub_sentry_event(event: dict, hint: dict) -> dict:  # noqa: ARG001  (Sentry before_send signature: (event, hint))
     """Strip audio data and large binary payloads from Sentry events."""
     if "exception" in event:
         for exc_info in event["exception"].get("values", []):

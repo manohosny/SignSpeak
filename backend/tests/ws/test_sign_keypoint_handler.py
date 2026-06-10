@@ -111,13 +111,14 @@ class TestKeypointFlush:
         handler = MeetingHandler(uuid.uuid4())
         handler.sign_segment_buffer.max_frames = 1000
         handler.sign_segment_buffer.rest_debounce_ms = 10_000
-        # Send 10 signing frames — well above the default SIGN_TO_TEXT_MIN_FRAMES=8
+        handler.sign_segment_buffer.pause_ms = 10_000  # don't auto-flush before the cue
+        # Send 20 signing frames — above the default SIGN_TO_TEXT_MIN_FRAMES=18
         # so recognition gating passes.
         mgr, _ = _mock_manager_with_speaker()
 
         with patch("app.ws.handlers.manager", mgr), \
              patch.object(handler, "_save_message", AsyncMock(return_value=True)):
-            asyncio.run(handler.handle_keypoint_frames(reader_id, _signing_frame(10)))
+            asyncio.run(handler.handle_keypoint_frames(reader_id, _signing_frame(20)))
             assert mgr.send_json_to_user.await_count == 0  # buffered only
             asyncio.run(handler.handle_sign_segment_end(reader_id))  # explicit cue
 

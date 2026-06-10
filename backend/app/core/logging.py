@@ -30,7 +30,10 @@ from typing import Any
 # contextvar at creation time, so binding once on the WS connect or HTTP
 # request entry propagates through downstream awaits.
 _log_context: contextvars.ContextVar[dict[str, Any]] = contextvars.ContextVar(
-    "_log_context", default={}
+    # Read-only default: callers only ever .get() it then .set() a fresh dict
+    # (see bind/reset below), so the shared {} is never mutated in place.
+    "_log_context",
+    default={},  # noqa: B039
 )
 
 _RESERVED_RECORD_FIELDS = frozenset(

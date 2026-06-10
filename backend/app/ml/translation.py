@@ -92,8 +92,8 @@ class TranslationEngine:
             self._loaded = True
             return
 
-        from transformers import MBart50TokenizerFast, MBartForConditionalGeneration
         import torch
+        from transformers import MBart50TokenizerFast, MBartForConditionalGeneration
 
         self._device = _detect_device(device)
         logger.info("Loading %s on %s...", model_name, self._device)
@@ -283,7 +283,10 @@ class TranslationEngine:
 
 @functools.lru_cache(maxsize=512)
 def _cached_translate(
-    engine_id: int, text: str, src_lang: str, tgt_lang: str
+    engine_id: int,  # noqa: ARG001  (part of the lru_cache key, intentionally unused in body)
+    text: str,
+    src_lang: str,
+    tgt_lang: str,
 ) -> str | None:
     """Cache translation results keyed by (engine_id, text, src_lang, tgt_lang).
 

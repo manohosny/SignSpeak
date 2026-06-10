@@ -100,7 +100,7 @@ def _load_part_kp(skeletons: np.ndarray, confs: np.ndarray) -> dict[str, Any]:
     scale = None
     for part in ["body", "left", "right", "face_all"]:
         kps, confidences = [], []
-        for skeleton, conf in zip(skeletons, confs):
+        for skeleton, conf in zip(skeletons, confs, strict=False):
             skeleton = skeleton[0]
             conf = conf[0]
             if part == "body":
@@ -250,7 +250,6 @@ class SignToTextEngine:
             self._loaded = True
             return
 
-        import sys
 
         import torch
 
