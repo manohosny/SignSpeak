@@ -30,9 +30,12 @@ function MeetingRoom() {
   const [resetKey, setResetKey] = useState(0)
   const {
     meetingState,
+    meeting,
     role,
+    transcript,
     glosses,
     error,
+    sendTextMessage,
     sendKeypointFrame,
     sendSignSegmentEnd,
     signText,
@@ -75,6 +78,7 @@ function MeetingRoom() {
             onToggleMic={toggleMic}
             micError={micError}
             hasPendingAudio={hasPendingAudio}
+            transcript={transcript}
           />
         </MeetingErrorBoundary>
       )}
@@ -90,6 +94,8 @@ function MeetingRoom() {
             onKeypointFrame={sendKeypointFrame}
             onEndSentence={sendSignSegmentEnd}
             signText={signText}
+            onSendText={sendTextMessage}
+            meetingId={meeting?.id ?? null}
           />
         </MeetingErrorBoundary>
       )}

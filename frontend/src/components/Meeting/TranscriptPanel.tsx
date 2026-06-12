@@ -71,7 +71,9 @@ export function TranscriptPanel({
   if (entries.length === 0) {
     return (
       <div className="flex flex-1 items-center justify-center text-muted-foreground">
-        Waiting for the speaker to start talking...
+        {currentRole === "speaker"
+          ? "Your words will appear here as you speak."
+          : "Waiting for the speaker to start talking..."}
       </div>
     )
   }

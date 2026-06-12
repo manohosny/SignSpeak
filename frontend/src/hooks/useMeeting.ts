@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 
-import type { MeetingState, WsServerMessage } from "@/lib/meeting-types"
+import type {
+  MeetingState,
+  SignTextState,
+  WsServerMessage,
+} from "@/lib/meeting-types"
 
 import {
   useMeetingAudioPlayer,
@@ -41,8 +45,9 @@ export function useMeeting(meetingCode: string) {
   const [authError, setAuthError] = useState<string | null>(null)
   // True between `tts_start` and `tts_end` — drives the partner-speaking dot.
   const [isPartnerSpeaking, setIsPartnerSpeaking] = useState(false)
-  // Latest English recognized from the reader's signing (Direction B echo).
-  const [signText, setSignText] = useState<string | null>(null)
+  // Latest English recognized from the reader's signing (Direction B echo),
+  // plus the optional confidence / persisted-message id the server attaches.
+  const [signText, setSignText] = useState<SignTextState | null>(null)
 
   // Apply fetch outcomes to the state machine.
   useEffect(() => {
@@ -122,7 +127,11 @@ export function useMeeting(meetingCode: string) {
           break
 
         case "sign_text":
-          setSignText(msg.content)
+          setSignText({
+            content: msg.content,
+            confidence: msg.confidence,
+            messageId: msg.message_id,
+          })
           break
       }
     },

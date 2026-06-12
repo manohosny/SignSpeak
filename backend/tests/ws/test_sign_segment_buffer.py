@@ -155,3 +155,33 @@ class TestMotionEnergy:
         sig_kp, sig_sc = _signing_frames(8)
         buf.feed(sig_kp, sig_sc, now_ms=0)
         assert buf.motion_energy(6) > 0.0
+
+
+class TestQuantitativeQualityBar:
+    """The documented 'good enough' bar (DOCUMENTATION.md, Models & Known
+    Limitations): zero spurious words during sustained rest pose."""
+
+    def test_sixty_seconds_of_rest_pose_produces_zero_flushes(self):
+        # 60 s at ~15 fps = 900 rest frames against PRODUCTION defaults.
+        buf = SignSegmentBuffer()
+        for second in range(60):
+            rest_kp, rest_sc = _rest_frames(15)
+            buf.feed(rest_kp, rest_sc, now_ms=second * 1000.0)
+            assert not buf.should_flush(now_ms=second * 1000.0 + 999)
+        # Nothing accumulated, nothing to flush -> zero words can be spoken.
+        assert len(buf) == 0
+        assert buf.flush() is None
+
+    def test_motionless_hold_never_pause_flushes_below_frame_cap(self):
+        # Hands UP but perfectly still (reader frozen / thinking): the pause
+        # path must never invent a sign. Stays under max_frames=256 — beyond
+        # that the cap force-flushes by design (model T limit), and the
+        # recognition-side confidence/degenerate gates take over.
+        buf = SignSegmentBuffer()
+        kp, sc = _signing_frames(1)
+        for i in range(200):  # ~13 s at 15 fps, identical frame -> zero motion
+            buf.feed(kp.copy(), sc.copy(), now_ms=i * 66.6)
+            # Probe right after each frame, as the live handler does — within
+            # the rest debounce window (frames are still arriving).
+            assert not buf.should_flush(now_ms=i * 66.6 + 50)
+        assert not buf._saw_motion

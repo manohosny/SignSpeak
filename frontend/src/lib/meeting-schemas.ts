@@ -77,12 +77,20 @@ const WsGlossErrorSchema = z.object({
 })
 
 // Recognized English from gloss-free sign recognition (Direction B), echoed
-// back to the Reader for confirmation (the Speaker hears it via TTS).
+// back to the Reader for confirmation (the Speaker hears it via TTS). The
+// same message type carries the pending-sign feedback ("HELLO …"), the
+// partial sentence as it builds, and the finalized sentence.
 const WsSignTextSchema = z.object({
   type: z.literal("sign_text"),
   content: z.string(),
   sender_id: z.string(),
   timestamp: z.string(),
+  // Recognition certainty in 0..1 — optional because older servers don't
+  // send it. The UI shows a "low confidence" hint when present and < 0.5.
+  confidence: z.number().optional(),
+  // Persisted-message UUID, present only on the finalized sentence — lets
+  // the reader flag a wrong translation via the REST flag endpoint.
+  message_id: z.string().optional(),
 })
 
 const WsServerShutdownSchema = z.object({

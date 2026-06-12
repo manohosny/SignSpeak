@@ -1363,5 +1363,55 @@ $ bun run test:unit
 
 ---
 
+## API Versioning & Compatibility Policy
+
+- **REST:** all endpoints live under `/api/v1` (`settings.API_V1_STR`). Within
+  v1, changes are **additive only** — new endpoints, new optional fields, new
+  response keys. Removing or renaming a field, changing a type, or changing
+  error semantics requires a new `/api/v2` router mounted alongside v1, with
+  v1 kept for a deprecation window. The auto-generated TypeScript client
+  (`frontend/src/client/`) is regenerated on backend changes, so frontend
+  drift is caught at compile time.
+- **WebSocket protocol:** message types are a Pydantic discriminated union
+  (`backend/app/ws/schemas.py`); unknown message types are rejected, and the
+  binary keypoint frame carries an explicit `version` byte
+  (`backend/app/ws/keypoint_frame.py`) so the codec can evolve without
+  breaking older clients. New JSON message types are additive; changing an
+  existing message's shape requires bumping the keypoint-frame version byte
+  or introducing a new message type, never mutating an existing one.
+- **Database:** Alembic migrations are forward-only in deployment; rollback
+  uses `alembic downgrade -1` before reverting code (see
+  `deploy/gcp/README.md` → Operations).
+
+## Models & Known Limitations (Direction A + B)
+
+| Model | Task | Type | Key limitation |
+|-------|------|------|----------------|
+| NVIDIA Parakeet TDT 0.6B (NeMo) | Speech → text | RNN-T/TDT ASR | English-only; accuracy degrades with heavy accents/noise |
+| `manohonsy/asl-mbart-50-lora` (custom LoRA fine-tune) | English ↔ ASL gloss | seq2seq (mBART-50) | Emits **pseudo-gloss** (IX / #WORD / cl: conventions), not authentic ASL grammar |
+| CWASA avatar + SiGML lexicon (~1,168 signs) | Gloss → animation | Rule-based synthesis | Lexicon is **ISL** signs rendered for ASL gloss; no classifier predicates; fingerspelling falls back to ISL handshapes |
+| YOLOX-tiny + RTMW (`onnxruntime-web`) | Video → 133 pose keypoints | CNN pose estimation | Runs in-browser (privacy by design); confidence drops with poor lighting/occlusion |
+| Uni-Sign, WLASL ISLR checkpoint | Keypoints → sign word | ST-GCN + mT5 | **Isolated** signs only (WLASL vocabulary); no continuous-signing grammar |
+| Kokoro 82M ONNX | Text → speech | TTS | Fixed voice set; CPU synthesis adds latency on long sentences |
+
+**Why ISLR instead of sentence-level SLT:** we evaluated the earlier
+CSLR/SLT pipeline offline on How2Sign (artifacts in `backend/eval_runs/`):
+BLEU **0.59** (test, n=2357) / **0.96** (val, n=1741) — fluent-looking but
+unusable translations, and the SLT checkpoint hallucinated on isolated/short
+live segments. The WLASL ISLR + gloss→English pipeline replaced it (commit
+`b132e6b`): per-sign recognition with confidence gating, degenerate-output
+suppression, and rest-pose/motion-pause segmentation tuned on real keypoint
+traces (threshold 0.012, min 18 frames). "Good enough" for the live demo is
+defined behaviorally: recognized signs appear word-by-word, and **zero
+spurious words during rest pose** (verified in live testing, 2026-06).
+
+Failure containment around every model: per-inference watchdog timeouts
+(`*_TIMEOUT_SECONDS`), confidence/length gating before inference,
+degenerate-repetition suppression after inference, raw-gloss TTS fallback if
+gloss→English fails, per-model kill switches, and mock modes for CI — see
+`backend/app/ml/` and `backend/app/ws/handlers.py`.
+
+---
+
 *This document covers all implementation and testing for the SignSpeak project.*
 *Generated from the codebase on branch `main` at commit `63c63ec`.*

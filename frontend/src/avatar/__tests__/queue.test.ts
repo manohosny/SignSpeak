@@ -146,6 +146,26 @@ describe("createAvatarQueue", () => {
     expect(playedIds()).toEqual(["A"])
   })
 
+  it("recovers from a malformed SiGML doc that CWASA never completes", () => {
+    // CWASA is a black box: handed a malformed document it can accept the
+    // call yet never fire `animidle`. The watchdog estimate clamps to at
+    // least one sign even when no <hns_sign> tag is found, so the queue
+    // still advances within a finite budget.
+    const { queue, playSigml } = setup()
+    queue.initAvatarQueue()
+    queue.enqueueSigml({
+      id: "bad",
+      sigml: "<sigml><not-even-closed",
+      glossText: "bad",
+    })
+    queue.enqueueSigml(makeItem("B"))
+
+    expect(playSigml).toHaveBeenCalledTimes(1) // malformed doc was attempted
+    vi.advanceTimersByTime(1500 + 2200) // BASE_TIMEOUT_MS + 1 * PER_SIGN_MS
+    expect(playSigml).toHaveBeenCalledTimes(2)
+    expect(playSigml).toHaveBeenLastCalledWith(makeItem("B").sigml)
+  })
+
   it("keeps the queue moving when scheduling a SiGML doc throws", () => {
     const { queue, playSigml, fireAnimIdle, playedIds } = setup()
     playSigml.mockImplementationOnce(() => {

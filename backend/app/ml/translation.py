@@ -185,9 +185,7 @@ class TranslationEngine:
         if MOCK_MODE:
             return "MOCK IX WANT BAKE CAKE"
 
-        return await asyncio.to_thread(
-            _cached_translate, id(self), text, EN_LANG_CODE, ASL_LANG_CODE
-        )
+        return await self._translate_with_timeout(text, EN_LANG_CODE, ASL_LANG_CODE)
 
     async def gloss_to_english(self, gloss: str) -> str | None:
         """Translate ASL gloss notation to English text (async).
@@ -203,9 +201,32 @@ class TranslationEngine:
         if MOCK_MODE:
             return "Mock: I want to bake a cake"
 
-        return await asyncio.to_thread(
-            _cached_translate, id(self), gloss, ASL_LANG_CODE, EN_LANG_CODE
-        )
+        return await self._translate_with_timeout(gloss, ASL_LANG_CODE, EN_LANG_CODE)
+
+    async def _translate_with_timeout(
+        self, text: str, src_lang: str, tgt_lang: str
+    ) -> str | None:
+        """Dispatch to the thread pool under the config watchdog budget."""
+        from app.core.config import settings
+
+        try:
+            return await asyncio.wait_for(
+                asyncio.to_thread(
+                    _cached_translate, id(self), text, src_lang, tgt_lang
+                ),
+                timeout=settings.TRANSLATION_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            from app.core.metrics import ML_INFERENCE_TIMEOUTS
+
+            ML_INFERENCE_TIMEOUTS.labels(engine="translation").inc()
+            logger.error(
+                "Translation (%s->%s) timed out after %.1fs",
+                src_lang,
+                tgt_lang,
+                settings.TRANSLATION_TIMEOUT_SECONDS,
+            )
+            return None
 
     def _translate_sync(self, text: str, src_lang: str, tgt_lang: str) -> str | None:
         """Synchronous inference -- called via asyncio.to_thread (or cached wrapper).

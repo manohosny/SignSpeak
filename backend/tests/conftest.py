@@ -14,9 +14,32 @@ from app.models import User
 from tests.utils.user import authentication_token_from_email
 from tests.utils.utils import get_superuser_token_headers
 
-# Sync test engine — psycopg3 supports both sync and async with same URL
+# ── Remote-database guard ───────────────────────────────────
+# This suite is DESTRUCTIVE: the session fixture's teardown deletes every
+# user (cascading to meetings/messages). Refuse to run against anything but
+# a local database. Beware: `env_ignore_empty=True` in app.core.config means
+# `DATABASE_URL=''` does NOT clear the .env value — that exact mistake sent
+# test runs to the remote production DB on 2026-06-12 and wiped its users.
+# Point DATABASE_URL at an explicit local DSN instead, e.g.
+#   DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:55432/app
+import os
+
+from sqlalchemy.engine import make_url
+
+_LOCAL_DB_HOSTS = {"localhost", "127.0.0.1", "::1", "db"}
+_db_url = make_url(str(settings.SQLALCHEMY_DATABASE_URI))
+if _db_url.host not in _LOCAL_DB_HOSTS and not os.environ.get("ALLOW_REMOTE_TEST_DB"):
+    raise RuntimeError(
+        f"Refusing to run the test suite against non-local database host "
+        f"{_db_url.host!r} — teardown deletes all users. Set DATABASE_URL to "
+        f"a local DSN, or ALLOW_REMOTE_TEST_DB=1 to override deliberately."
+    )
+
+# Sync test engine — psycopg3 supports both sync and async with same URL.
+# sslmode=require only makes sense for remote (hosted) databases; a local
+# throwaway Postgres has no TLS.
 _connect_args = {}
-if settings.DATABASE_URL:
+if settings.DATABASE_URL and _db_url.host not in _LOCAL_DB_HOSTS:
     _connect_args["sslmode"] = "require"
 
 test_engine = create_engine(

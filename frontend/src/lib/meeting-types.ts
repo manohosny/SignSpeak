@@ -68,3 +68,12 @@ export type GlossEntry = {
   timestamp: string
   isOwn: boolean
 }
+
+/** Latest `sign_text` echo (Direction B), shaped for the reader's UI. */
+export type SignTextState = {
+  content: string
+  /** Recognition certainty in 0..1 when the server reports one. */
+  confidence?: number
+  /** Persisted message UUID — present only on finalized sentences. */
+  messageId?: string
+}

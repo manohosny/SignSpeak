@@ -2,7 +2,8 @@
 # (GPUS_ALL_REGIONS quota is locked at 0 and raising it requires upgrading to a
 # paid account). The ML code auto-falls back to CPU; this override removes the
 # NVIDIA device request so `docker compose up` does not fail looking for a GPU,
-# and sizes the backend for a c2-standard-16 (16 vCPU / 64 GB) host.
+# and sizes the backend for an e2-standard-16 (16 vCPU / 64 GB) host —
+# the machine type the live deployment actually runs on.
 #
 # Usage on the VM:
 #   docker compose -f compose.yml -f deploy/gcp/compose.cpu.yml up -d

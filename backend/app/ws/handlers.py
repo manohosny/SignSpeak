@@ -14,8 +14,10 @@ from typing import Any
 import numpy.typing as npt
 
 from app import crud_meeting
+from app.core.content_filter import apply_output_filter
 from app.core.db import async_session_factory
 from app.core.logging import time_stage
+from app.core.metrics import SIGN_SEGMENTS_GATED
 from app.ml.audio_utils import pcm16_bytes_to_float32
 from app.ml.sign_to_text import sign_to_text_engine
 from app.ml.stt import StreamingSTTBuffer, stt_engine
@@ -97,6 +99,9 @@ class MeetingHandler:
         # per-sign segments and are spoken as one sentence when the reader ends
         # the sentence (stops signing / sign_segment_end).
         self._sign_words: list[str] = []
+        # Mean hand-keypoint confidence of each accepted segment — surfaced
+        # to the reader as a per-word/sentence confidence indicator.
+        self._sign_confs: list[float] = []
         self._active = True
         self._last_partial_time: float = 0.0
         # Audio rate limiting state
@@ -259,7 +264,7 @@ class MeetingHandler:
         if not self._active:
             return
 
-        content = content.strip()
+        content = apply_output_filter(content.strip())
         if not content:
             return
 
@@ -290,6 +295,15 @@ class MeetingHandler:
             meeting_id=self.meeting_id,
             user_id=sender_id,
             data=text_msg,
+        )
+
+        # Persist so the typed override appears in meeting history alongside
+        # the recognized-sign messages; notifies the sender on failure.
+        await self._persist_user_message(
+            sender_id=sender_id,
+            content=content,
+            msg_type=MessageType.text_message,
+            notify_label="your message",
         )
 
         # Synthesize and stream audio to Speaker chunk-by-chunk
@@ -645,6 +659,12 @@ class MeetingHandler:
             n_frames < settings.SIGN_TO_TEXT_MIN_FRAMES
             or hand_conf < settings.SIGN_TO_TEXT_MIN_CONFIDENCE
         ):
+            reason = (
+                "too_short"
+                if n_frames < settings.SIGN_TO_TEXT_MIN_FRAMES
+                else "low_confidence"
+            )
+            SIGN_SEGMENTS_GATED.labels(reason=reason).inc()
             logger.info(
                 "sign gated: frames=%d hand_conf=%.2f (min_frames=%d, min_conf=%.2f)",
                 n_frames,
@@ -666,11 +686,15 @@ class MeetingHandler:
             word = None
 
         if not word or _is_degenerate_text(word):
+            SIGN_SEGMENTS_GATED.labels(reason="empty_or_degenerate").inc()
             logger.info("sign gated (empty/degenerate): %r", word)
             return
 
         self._sign_words.append(word.strip())
+        self._sign_confs.append(hand_conf)
         # Partial feedback: show the sentence building up (no speech yet).
+        # `confidence` is the just-recognized segment's mean hand-keypoint
+        # confidence — the input-quality evidence behind this word.
         await manager.send_json_to_user(
             meeting_id=self.meeting_id,
             user_id=sender_id,
@@ -680,6 +704,7 @@ class MeetingHandler:
                 "sender_id": str(sender_id),
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "is_partial": True,
+                "confidence": round(hand_conf, 3),
             },
         )
 
@@ -694,7 +719,10 @@ class MeetingHandler:
         if not self._sign_words:
             return
         gloss = " ".join(self._sign_words)
+        confs = self._sign_confs
+        sentence_conf = round(sum(confs) / len(confs), 3) if confs else None
         self._sign_words = []
+        self._sign_confs = []
 
         english: str | None = None
         try:
@@ -703,23 +731,32 @@ class MeetingHandler:
         except Exception as e:
             logger.warning("gloss->English failed, speaking raw gloss: %s", e)
         spoken = (english or "").strip() or gloss
+        spoken = apply_output_filter(spoken)
         logger.info("sign sentence: gloss=%r -> english=%r", gloss, spoken)
 
-        timestamp = datetime.now(timezone.utc).isoformat()
-        await manager.send_json_to_user(
-            meeting_id=self.meeting_id,
-            user_id=sender_id,
-            data={
-                "type": "sign_text",
-                "content": spoken,
-                "sender_id": str(sender_id),
-                "timestamp": timestamp,
-            },
-        )
-        await self._save_message(
+        # Persist before sending so the client message can carry the DB id —
+        # the "flag wrong translation" feedback action keys off message_id.
+        message_id = await self._save_message(
             sender_id=sender_id,
             content=spoken,
             msg_type=MessageType.sign_translation,
+        )
+
+        timestamp = datetime.now(timezone.utc).isoformat()
+        final_msg: dict[str, Any] = {
+            "type": "sign_text",
+            "content": spoken,
+            "sender_id": str(sender_id),
+            "timestamp": timestamp,
+        }
+        if sentence_conf is not None:
+            final_msg["confidence"] = sentence_conf
+        if message_id is not None:
+            final_msg["message_id"] = str(message_id)
+        await manager.send_json_to_user(
+            meeting_id=self.meeting_id,
+            user_id=sender_id,
+            data=final_msg,
         )
         await self._stream_tts_to_speaker(spoken, source="sign_frames")
 
@@ -796,6 +833,7 @@ class MeetingHandler:
         if not session:
             return
 
+        transcript = apply_output_filter(transcript)
         timestamp = datetime.now(timezone.utc).isoformat()
         transcript_msg: dict[str, Any] = {
             "type": "transcript",
@@ -873,8 +911,8 @@ class MeetingHandler:
         sender_id: uuid.UUID,
         content: str,
         msg_type: MessageType,
-    ) -> bool:
-        """Save message to DB. Returns True on success, False on failure.
+    ) -> uuid.UUID | None:
+        """Save message to DB. Returns the new message id, or None on failure.
 
         Callers persisting user-originated content (text/gloss) should
         check the return value and surface an `error` to the sender so
@@ -885,7 +923,7 @@ class MeetingHandler:
         """
         try:
             async with async_session_factory() as session:
-                await crud_meeting.save_message(
+                message = await crud_meeting.save_message(
                     session=session,
                     meeting_id=self.meeting_id,
                     sender_id=sender_id,
@@ -893,10 +931,10 @@ class MeetingHandler:
                     msg_type=msg_type,
                 )
                 await session.commit()
-            return True
+            return message.id
         except Exception as e:
             logger.error("Failed to save message: %s", e, exc_info=True)
-            return False
+            return None
 
     async def _persist_user_message(
         self,
@@ -904,7 +942,7 @@ class MeetingHandler:
         content: str,
         msg_type: MessageType,
         notify_label: str,
-    ) -> bool:
+    ) -> uuid.UUID | None:
         """Persist user-originated content; on failure, notify the sender.
 
         `notify_label` is shown to the user in the error toast, e.g.

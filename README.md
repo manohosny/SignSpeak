@@ -1,10 +1,16 @@
 # SignSpeak
 
-A real-time accessibility platform that enables seamless communication between speakers and readers. Speakers talk naturally while their speech is transcribed live; readers type messages that are converted to audio for the speaker.
+A real-time accessibility platform for communication between a hearing **speaker** and a Deaf/HoH **reader**, in both directions:
+
+- **Direction A (speech → sign):** the speaker talks; their speech is transcribed live, translated to sign gloss, and rendered by a 3D signing avatar (plus live captions). Reader replies are spoken aloud via TTS.
+- **Direction B (sign → speech):** the reader signs at their camera; pose keypoints are extracted **in the browser** (video never leaves the device), streamed over WebSocket, recognized sign-by-sign on the server, and spoken to the speaker via TTS.
 
 ## Features
 
 - **Speech-to-Text (STT)** — Live transcription using NVIDIA Parakeet TDT 0.6B via NeMo
+- **Gloss translation** — English ↔ ASL pseudo-gloss via a custom mBART-50 LoRA fine-tune (`manohonsy/asl-mbart-50-lora`)
+- **3D signing avatar** — CWASA/SiGML avatar with a ~1,168-sign lexicon and fingerspelling fallback
+- **Sign recognition (Direction B)** — Browser-side YOLOX + RTMW pose extraction (ONNX web worker) → WebSocket keypoint streaming → Uni-Sign (WLASL ISLR checkpoint) recognition with rest-pose/motion-pause segmentation
 - **Text-to-Speech (TTS)** — Message vocalization using Kokoro 82M ONNX
 - **Real-time meetings** — WebSocket-based communication with shareable meeting codes
 - **Role-based participation** — Speaker and reader roles with tailored UIs
@@ -18,10 +24,10 @@ A real-time accessibility platform that enables seamless communication between s
 |-------|-----------|
 | **Backend** | FastAPI, SQLModel, PostgreSQL, Alembic |
 | **Frontend** | React 19, TypeScript, TanStack Router/Query, Tailwind CSS, shadcn/ui |
-| **ML/AI** | NVIDIA Parakeet TDT 0.6B (STT), Kokoro 82M ONNX (TTS), PyTorch |
-| **Real-time** | WebSockets (FastAPI native) |
-| **Infrastructure** | Docker Compose, Traefik, Nginx |
-| **Testing** | Pytest (backend), Playwright (E2E), Vitest (unit) |
+| **ML/AI** | NVIDIA Parakeet TDT 0.6B (STT), mBART-50 LoRA (gloss translation), Uni-Sign + RTMW/YOLOX ONNX (sign recognition), Kokoro 82M ONNX (TTS), PyTorch |
+| **Real-time** | WebSockets (FastAPI native) — JSON control + binary keypoint/audio frames |
+| **Infrastructure** | Docker Compose, Traefik (local) / Caddy (production), Nginx |
+| **Testing** | Pytest (backend), Playwright (E2E), Vitest (unit), k6 (load) |
 
 ## Prerequisites
 
@@ -39,8 +45,17 @@ A real-time accessibility platform that enables seamless communication between s
 git clone git@github.com:manohosny/SignSpeak.git
 cd SignSpeak
 
-# 2. Configure environment
-cp .env .env.local   # Edit .env with your database URL, secrets, etc.
+# 2. Configure environment (the repo ships .env.example, not .env)
+cp .env.example .env   # Edit: database URL, SECRET_KEY, superuser credentials
+
+# Optional: run without downloading any ML models (fastest first boot —
+# this is exactly what CI does in .github/workflows/test-docker-compose.yml)
+cat >> .env <<'EOF'
+STT_MOCK_MODE=true
+TRANSLATION_MOCK_MODE=true
+TTS_MOCK_MODE=true
+SIGN_TO_TEXT_MOCK_MODE=true
+EOF
 
 # 3. Start all services
 docker compose watch
@@ -177,8 +192,8 @@ SignSpeak/
 
 1. A **speaker** creates a meeting and gets a shareable code (e.g., `XKF-8291`)
 2. A **reader** joins using the code
-3. The speaker's audio is streamed via WebSocket → the backend runs **STT** → transcripts are broadcast to the reader in real-time
-4. The reader types messages → the backend runs **TTS** → audio is sent back to the speaker
+3. **Direction A:** the speaker's audio is streamed via WebSocket → the backend runs **STT** → the transcript is translated to **sign gloss** (mBART LoRA) → the reader sees live captions and the **3D avatar** signing the gloss
+4. **Direction B:** the reader signs at their camera → a web worker extracts 133 RTMW pose keypoints per frame (**only keypoints, never video, leave the browser**) → keypoints stream over the same WebSocket → the backend segments signs (rest-pose / motion-pause detection) and recognizes each with **Uni-Sign** → the sentence is finalized, smoothed to English, and spoken to the speaker via **TTS**
 
 ## Common Commands
 
@@ -202,7 +217,18 @@ docker compose exec backend bash
 
 ```bash
 cd backend
-uv run pytest                       # Run tests
+
+# Run tests — ALWAYS against a local database, with an explicit DSN.
+# (`DATABASE_URL=''` does NOT work: env_ignore_empty=True means empty env
+# vars are ignored and the .env value wins. The suite's teardown deletes all
+# users; tests/conftest.py refuses non-local DB hosts as a safety net.)
+# One-time local DB:  initdb -D /tmp/sstest -U postgres --auth=trust &&
+#   pg_ctl -D /tmp/sstest -o "-p 55432 -c fsync=off" start &&
+#   psql -h localhost -p 55432 -U postgres -c "CREATE DATABASE app;"
+export TEST_DB='postgresql+psycopg://postgres:postgres@localhost:55432/app'
+DATABASE_URL=$TEST_DB uv run bash scripts/prestart.sh   # migrate + seed once
+DATABASE_URL=$TEST_DB uv run pytest                     # Run tests
+
 uv run ruff check .                 # Lint
 uv run ruff format .                # Format
 uv run mypy app                     # Type check
@@ -233,6 +259,32 @@ TTS_MOCK_MODE=true
 When ML is enabled, the backend requires:
 - **STT**: Downloads automatically via NeMo toolkit (~600MB)
 - **TTS**: Requires `kokoro-v1.0.onnx` (~325MB) and `voices-v1.0.bin` (~28MB) — place in the backend working directory
+- **Gloss translation**: `manohonsy/asl-mbart-50-lora` downloads automatically from Hugging Face
+
+### Running Direction B (sign recognition) locally
+
+Direction B needs the Uni-Sign checkpoint and an mT5 snapshot, which are **not** auto-downloaded:
+
+1. Place the WLASL ISLR checkpoint at `~/.signspeak/models/uni-sign/wlasl_pose_only_islr.pth` and the mT5 base snapshot at `~/.signspeak/models/mt5-base` (see `deploy/gcp/03-stage-models.sh` for download/staging commands), or point `SIGN_TO_TEXT_CHECKPOINT` / `SIGN_TO_TEXT_MT5_DIR` wherever you keep them.
+2. The vendored model code lives in `third_party/Uni-Sign`.
+3. No setup is needed for the browser side — YOLOX + RTMW ONNX models are bundled with the frontend (or served from `VITE_MODEL_BASE`).
+4. Without the checkpoint, the backend starts fine and logs a warning; set `SIGN_TO_TEXT_MOCK_MODE=true` to exercise the pipeline with canned output.
+
+Segmentation/recognition knobs (`SIGN_TO_TEXT_*` in `backend/app/core/config.py`) are all env-tunable — thresholds were calibrated against real keypoint traces (motion threshold 0.012, min 18 frames, min hand confidence 0.3).
+
+## Privacy & Known Model Limitations
+
+**Privacy by design (Direction B):** the reader's camera video is processed entirely in a browser web worker — only 133 pose keypoints (x, y, confidence) are ever transmitted. Raw pixels never leave the device. All ML models run locally on our own server; no user content is sent to third-party AI APIs. Sentry error tracking runs with `send_default_pii=False` and scrubs audio buffers from events.
+
+**Known limitations (documented honestly):**
+- The translation model emits **pseudo-gloss** (IX / #WORD / cl: conventions), not authentic ASL grammar.
+- The avatar lexicon is ~1,168 **Indian Sign Language** signs rendered for ASL gloss — a different language, not just an imperfect rendering; fingerspelling falls back to ISL handshapes.
+- Direction B vocabulary is limited to **WLASL isolated signs**; classifier-predicate motion (core ASL grammar) is not rendered.
+- No fairness evaluation across signer demographics (skin tone, hand size, signing speed) has been run yet — see the maturity report roadmap.
+
+## Team & Provenance
+
+This repository was forked from the [FastAPI full-stack template](https://github.com/fastapi/full-stack-fastapi-template) via copier (template authors appear in the inherited git history). All SignSpeak features — meetings, STT/TTS pipelines, gloss translation, the signing avatar, and the Direction B sign-recognition pipeline — were built by **@manohosny**. To see project work excluding template history: `git log --since=2025-03-01 --oneline --no-merges`.
 
 ## Further Documentation
 

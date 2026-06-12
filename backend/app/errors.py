@@ -16,6 +16,7 @@ EMAILS_NOT_CONFIGURED = "Email sending is not configured"
 
 # Meeting error constants
 MEETING_NOT_FOUND = "Meeting not found"
+MESSAGE_NOT_FOUND = "Message not found"
 MEETING_ALREADY_ENDED = "Meeting has already ended"
 MEETING_IN_PROGRESS = "Meeting is already in progress"
 MEETING_FULL = "Meeting is full (max 2 participants)"
@@ -51,6 +52,10 @@ def raise_invalid_token() -> NoReturn:
 
 def raise_meeting_not_found() -> NoReturn:
     raise HTTPException(status_code=404, detail=MEETING_NOT_FOUND)
+
+
+def raise_message_not_found() -> NoReturn:
+    raise HTTPException(status_code=404, detail=MESSAGE_NOT_FOUND)
 
 
 def raise_meeting_already_ended() -> NoReturn:

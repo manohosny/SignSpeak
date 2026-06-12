@@ -1,4 +1,26 @@
-# Deploying SignSpeak to Google Cloud (GPU VM, $300 trial)
+# Deploying SignSpeak to Google Cloud
+
+> **What is actually live (2026-06):** a CPU-only `e2-standard-16`
+> (16 vCPU / 64 GB) in `us-central1-a` at `34.10.142.210.sslip.io`, running
+> `compose.yml` + `deploy/gcp/compose.cpu.yml` behind **Caddy**
+> (`docker-compose.caddy.yml` + `Caddyfile`) — not the GPU/Traefik plan below.
+> The GPU quota was unavailable on the trial account, so the stack falls back
+> to CPU; Traefik was replaced by Caddy because Traefik pins Docker API 1.24,
+> below Engine 29's minimum (see `Caddyfile` header).
+
+## Cost — live CPU deployment
+- `e2-standard-16` on-demand ≈ **$0.54/hr** → ~$390/month if left running 24/7.
+- With idle-stop between demos (~30–40 hrs/month) ≈ **$16–22/month** compute,
+  plus ~$10–15/month for the 100 GB disk and static IP while stopped.
+- The most expensive component is the VM itself; everything else (Supabase
+  Postgres free tier, GHCR, sslip.io DNS, Let's Encrypt) is $0. There are no
+  per-request AI API costs — all models are local.
+
+The original GPU plan below is kept for when a GPU quota is available.
+
+---
+
+# GPU plan (original, $300 trial)
 
 A single NVIDIA L4 VM runs the whole `docker compose` stack — all four server
 models co-resident on one GPU for lowest latency. Postgres is external (free
@@ -12,7 +34,7 @@ See the full rationale in `/.claude/plans/i-want-to-deploy-zazzy-narwhal.md`.
   translation (all CUDA), Kokoro TTS (CPU), frontend, Redis, Traefik.
 - **External free tier:** Postgres (Supabase or Neon).
 
-## Cost (idle-stop)
+## Cost (GPU, idle-stop)
 `g2-standard-8` + L4 ≈ ~$1/hr while running. ~30–40 hrs/month of demos ≈
 $30–40/month → credit lasts ~7–8 months. Stopped VM ≈ ~$10/month (disk + IP).
 
@@ -114,3 +136,58 @@ sudo chmod +x /usr/local/bin/signspeak-idle.sh
   `backend/Dockerfile` creates `~/.signspeak/models` so the volume is writable.
 - **Real domain later:** change `DOMAIN` (+ DNS A records `api`/`dashboard` →
   static IP) and restart; Traefik re-issues certs automatically.
+
+---
+
+# Operations (live CPU deployment)
+
+## Service level objectives
+- **Availability target: 99% during announced demo windows.** Outside demo
+  windows the VM may be deliberately idle-stopped to save credit — that is
+  planned downtime, not an incident.
+- **Latency budgets** (CPU VM, per stage — all stages already emit
+  `duration_ms` via the `time_stage` structured logger):
+  - HTTP API requests: p95 < 500 ms (verified: p95 99 ms at 50 VUs,
+    `loadtest/RESULTS.md`)
+  - STT utterance → transcript: < 2 s
+  - Gloss translation (mBART, cached LRU): < 1 s
+  - Sign segment → recognized word (Uni-Sign): < 3 s
+  - Watchdog ceilings (hard): `*_TIMEOUT_SECONDS` in
+    `backend/app/core/config.py` (20–30 s) — a hung inference frees the
+    session instead of stalling it.
+
+## Rollback on the VM
+The live VM runs locally-built images, so rollback = rebuild at a known-good
+commit (model weights and DB live in volumes/external Postgres and are
+unaffected; migrations are additive-only by policy):
+
+```bash
+gcloud compute ssh signspeak --zone=us-central1-a
+cd SignSpeak
+git log --oneline -5                  # pick the last known-good commit
+git checkout <good-sha>
+docker compose -f compose.yml -f deploy/gcp/compose.cpu.yml build backend frontend
+docker compose -f compose.yml -f deploy/gcp/compose.cpu.yml up -d
+curl -fsS https://api.34.10.142.210.sslip.io/api/v1/utils/healthz/ready
+```
+
+If a migration must be reverted: `docker compose exec backend alembic
+downgrade -1` **before** switching the code back.
+
+(The GitHub Actions deploy workflows in `.github/workflows/deploy-*.yml`
+implement tag-based pull + automatic rollback-on-unhealthy; they take over
+once the VM is registered as a self-hosted runner and images come from GHCR.)
+
+## Production triage checklist
+1. **Detect:** healthcheck — `curl -fsS .../api/v1/utils/healthz/live` (web
+   tier up?) then `/healthz/ready` (models warm? 503 = still loading).
+2. **Container state:** `docker compose ps` — backend `unhealthy` or
+   restart-looping means OOM or model-load failure; check
+   `docker stats --no-stream` against the 26G/40G limits.
+3. **Logs:** `docker compose logs -f backend | grep -E 'ERROR|WARN'` — every
+   log line carries `meeting_id`/`user_id`/`role` and per-stage
+   `duration_ms`, so one meeting's pipeline can be reconstructed end-to-end.
+4. **Errors with stack traces:** Sentry (if `SENTRY_DSN` is set in the VM's
+   `.env`) — events arrive with audio buffers scrubbed.
+5. **Fix:** config-only fixes are env edits + `up -d`; code fixes follow the
+   rollback procedure above (forward to a fix commit instead of backward).

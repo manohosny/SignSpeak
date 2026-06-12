@@ -442,10 +442,12 @@ async def _handle_text(
         return False, False
 
     if msg.type == "text_message":
-        # text_message frames are passed through here just so they aren't
-        # rejected as "unknown" by the dispatch — the actual rate-limit and
-        # routing happens before this call. They are not stored or echoed
-        # by the backend yet.
+        # Reader's manual text override — the human-in-the-loop path used
+        # when sign recognition repeatedly gates their signing: forwarded to
+        # the speaker, echoed back for confirmation, spoken via TTS, and
+        # persisted (handle_text_message). Rate limiting happened upstream.
+        if role == "reader":
+            await handler.handle_text_message(sender_id=user_id, content=msg.content)
         return False, False
 
     if msg.type == "auth":

@@ -68,9 +68,69 @@ describe("WsServerMessageSchema", () => {
       },
     ],
     ["gloss_error", { type: "gloss_error", message: "translation failed" }],
+    [
+      "sign_text",
+      {
+        type: "sign_text",
+        content: "hello world",
+        sender_id: "u2",
+        timestamp: baseTimestamp,
+      },
+    ],
   ])("accepts a valid %s message", (_, msg) => {
     const result = WsServerMessageSchema.safeParse(msg)
     expect(result.success).toBe(true)
+  })
+
+  describe("sign_text confidence / message_id (newer servers)", () => {
+    const base = {
+      type: "sign_text",
+      content: "hello world",
+      sender_id: "u2",
+      timestamp: baseTimestamp,
+    }
+
+    it("accepts an optional numeric confidence", () => {
+      const result = WsServerMessageSchema.safeParse({
+        ...base,
+        confidence: 0.42,
+      })
+      expect(result.success).toBe(true)
+      if (result.success && result.data.type === "sign_text") {
+        expect(result.data.confidence).toBe(0.42)
+      }
+    })
+
+    it("accepts an optional message_id on finalized sentences", () => {
+      const result = WsServerMessageSchema.safeParse({
+        ...base,
+        message_id: "2f4d5a36-1111-4222-8333-444455556666",
+        confidence: 0.91,
+      })
+      expect(result.success).toBe(true)
+      if (result.success && result.data.type === "sign_text") {
+        expect(result.data.message_id).toBe(
+          "2f4d5a36-1111-4222-8333-444455556666",
+        )
+      }
+    })
+
+    it("tolerates both fields being absent (older servers)", () => {
+      const result = WsServerMessageSchema.safeParse(base)
+      expect(result.success).toBe(true)
+      if (result.success && result.data.type === "sign_text") {
+        expect(result.data.confidence).toBeUndefined()
+        expect(result.data.message_id).toBeUndefined()
+      }
+    })
+
+    it("rejects a non-numeric confidence", () => {
+      const result = WsServerMessageSchema.safeParse({
+        ...base,
+        confidence: "high",
+      })
+      expect(result.success).toBe(false)
+    })
   })
 
   it("rejects an unknown type", () => {

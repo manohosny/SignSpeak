@@ -335,7 +335,22 @@ class SignToTextEngine:
             raise RuntimeError("Sign-to-text model not loaded. Call load_model() first.")
         if MOCK_MODE:
             return "Mock: hello how are you"
-        return await asyncio.to_thread(self._translate_sync, keypoints, scores)
+        from app.core.config import settings
+
+        try:
+            return await asyncio.wait_for(
+                asyncio.to_thread(self._translate_sync, keypoints, scores),
+                timeout=settings.SIGN_TO_TEXT_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            from app.core.metrics import ML_INFERENCE_TIMEOUTS
+
+            ML_INFERENCE_TIMEOUTS.labels(engine="sign_to_text").inc()
+            logger.error(
+                "Sign-to-text inference timed out after %.1fs — dropping segment",
+                settings.SIGN_TO_TEXT_TIMEOUT_SECONDS,
+            )
+            return None
 
     def _translate_sync(self, keypoints: npt.NDArray[Any], scores: npt.NDArray[Any]) -> str | None:
         import torch

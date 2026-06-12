@@ -27,7 +27,11 @@ _models_ready = False
 
 
 def custom_generate_unique_id(route: APIRoute) -> str:
-    return f"{route.tags[0]}-{route.name}"
+    # Untagged routes (e.g. the instrumentator's /metrics) fall back to the
+    # bare route name instead of crashing on tags[0].
+    if route.tags:
+        return f"{route.tags[0]}-{route.name}"
+    return route.name
 
 
 def models_ready() -> bool:
@@ -458,6 +462,16 @@ if settings.ENVIRONMENT != "local":
             _allowed_hosts.append(host)
     if _allowed_hosts:
         app.add_middleware(TrustedHostMiddleware, allowed_hosts=_allowed_hosts)
+
+# Prometheus metrics — request latency/count/error histograms at /metrics
+# (aggregate-only; ML quality counters live in app.core.metrics and share
+# the same registry). Excluded from the OpenAPI schema.
+if settings.METRICS_ENABLED:
+    from prometheus_fastapi_instrumentator import Instrumentator
+
+    Instrumentator(excluded_handlers=["/metrics"]).instrument(app).expose(
+        app, include_in_schema=False
+    )
 
 # REST API (under /api/v1)
 app.include_router(api_router, prefix=settings.API_V1_STR)

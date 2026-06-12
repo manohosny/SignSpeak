@@ -157,7 +157,22 @@ class STTEngine:
             duration = len(audio) / DEFAULT_SAMPLE_RATE
             return f"[Mock transcript — {duration:.1f}s of audio]"
 
-        return await asyncio.to_thread(self._transcribe_sync, audio)
+        from app.core.config import settings
+
+        try:
+            return await asyncio.wait_for(
+                asyncio.to_thread(self._transcribe_sync, audio),
+                timeout=settings.STT_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            from app.core.metrics import ML_INFERENCE_TIMEOUTS
+
+            ML_INFERENCE_TIMEOUTS.labels(engine="stt").inc()
+            logger.error(
+                "STT inference timed out after %.1fs — dropping utterance",
+                settings.STT_TIMEOUT_SECONDS,
+            )
+            return None
 
     def _transcribe_sync(self, audio: npt.NDArray[np.floating[Any]]) -> str | None:
         """Sync transcription — passes NumPy arrays directly to NeMo.

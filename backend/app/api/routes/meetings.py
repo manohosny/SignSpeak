@@ -4,6 +4,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, Query, status
 
 from app.api.deps import CurrentUser, SessionDep, get_current_user
+from app.core.metrics import MESSAGE_FLAGS
 from app.models import (
     MeetingJoin,
     MeetingMessagePublic,
@@ -11,6 +12,7 @@ from app.models import (
     MeetingPublic,
     MeetingsPublic,
     Message,
+    MessageFlag,
 )
 from app.services import meeting_service
 
@@ -122,6 +124,32 @@ async def get_messages(
         count=len(messages),
         next_cursor=next_cursor,
     )
+
+
+@router.post(
+    "/{meeting_id}/messages/{message_id}/flag",
+    response_model=MeetingMessagePublic,
+)
+async def flag_message(
+    meeting_id: uuid.UUID,
+    message_id: uuid.UUID,
+    session: SessionDep,
+    current_user: CurrentUser,
+    body: MessageFlag = MessageFlag(),
+) -> MeetingMessagePublic:
+    """Flag a message as a wrong translation/transcription (user feedback).
+
+    Participant-only. Flagged messages form the labeled correction dataset
+    that drives threshold tuning and model re-tuning."""
+    message = await meeting_service.flag_message(
+        session=session,
+        meeting_id=meeting_id,
+        message_id=message_id,
+        user_id=current_user.id,
+        reason=body.reason,
+    )
+    MESSAGE_FLAGS.inc()
+    return MeetingMessagePublic.model_validate(message)
 
 
 # ============================================================

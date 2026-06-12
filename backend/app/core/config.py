@@ -99,6 +99,26 @@ class Settings(BaseSettings):
     # ── ML / Audio Pipeline ──
     STT_BUFFER_MODE: str = "utterance"  # "utterance" | "fixed"
 
+    # Per-inference watchdog budgets (seconds). Inference runs in
+    # asyncio.to_thread with no inherent deadline — without these, a hung
+    # model call stalls that meeting's pipeline forever. Sized for CPU-only
+    # production with greedy decoding (observed worst cases are seconds, not
+    # tens of seconds). The watchdog frees the awaiting WS session; it cannot
+    # kill the worker thread, which releases the engine lock only when the
+    # hung call eventually returns.
+    STT_TIMEOUT_SECONDS: float = 30.0
+    TRANSLATION_TIMEOUT_SECONDS: float = 20.0
+    SIGN_TO_TEXT_TIMEOUT_SECONDS: float = 30.0
+    TTS_TIMEOUT_SECONDS: float = 30.0
+
+    # Prometheus /metrics endpoint (HTTP histograms + ML gate counters).
+    # Aggregate-only data; disable if the API origin must not expose it.
+    METRICS_ENABLED: bool = True
+    # Output content filter (PII redaction + profanity blocking) applied to
+    # transcripts / sign sentences / text messages before broadcast, DB
+    # persistence, and TTS. Policy: SECURITY.md -> Content Safety.
+    CONTENT_FILTER_ENABLED: bool = True
+
     # ── Translation (mBART-50 ASL) ──
     TRANSLATION_MODEL_NAME: str = "manohonsy/asl-mbart-50-lora"
     TRANSLATION_DEVICE: str = "auto"        # auto | cuda | mps | cpu

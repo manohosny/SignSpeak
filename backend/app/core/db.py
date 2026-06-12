@@ -1,5 +1,6 @@
 import logging
 
+from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -10,8 +11,16 @@ from app.models import User, UserCreate
 
 logger = logging.getLogger(__name__)
 
+# Hosted databases (Supabase/Neon) require TLS; a local/CI Postgres has none.
+# Decide by HOST, not by "DATABASE_URL is set" — an explicit local DSN is the
+# sanctioned way to run tests and dev tooling (tests/conftest.py additionally
+# hard-refuses non-local hosts because the suite's teardown is destructive).
+_LOCAL_DB_HOSTS = {"localhost", "127.0.0.1", "::1", "db"}
 connect_args = {}
-if settings.DATABASE_URL:
+if (
+    settings.DATABASE_URL
+    and make_url(str(settings.SQLALCHEMY_DATABASE_URI)).host not in _LOCAL_DB_HOSTS
+):
     connect_args["sslmode"] = "require"
 
 engine = create_async_engine(

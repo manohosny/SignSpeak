@@ -12,6 +12,7 @@ from app.errors import (
     raise_meeting_full,
     raise_meeting_in_progress,
     raise_meeting_not_found,
+    raise_message_not_found,
     raise_not_authorized_end_meeting,
     raise_not_meeting_participant,
 )
@@ -239,6 +240,38 @@ async def get_meeting_messages(
     messages.reverse()
 
     return messages, next_cursor
+
+
+async def flag_message(
+    *,
+    session: AsyncSession,
+    meeting_id: uuid.UUID,
+    message_id: uuid.UUID,
+    user_id: uuid.UUID,
+    reason: str | None,
+) -> MeetingMessage:
+    """Mark a message as a wrong translation (user feedback capture).
+
+    Participant-only; the flagged rows form the labeled dataset that drives
+    threshold tuning and model re-tuning (improvement loop). Idempotent —
+    re-flagging refreshes the timestamp/reason.
+    """
+    participant = await crud_meeting.get_participant(
+        session=session, meeting_id=meeting_id, user_id=user_id
+    )
+    if not participant:
+        raise_not_meeting_participant()
+
+    message = await session.get(MeetingMessage, message_id)
+    if not message or message.meeting_id != meeting_id:
+        raise_message_not_found()
+
+    message.flagged_at = datetime.now(timezone.utc)
+    message.flag_reason = reason
+    session.add(message)
+    await session.commit()
+    await session.refresh(message)
+    return message
 
 
 # ============================================================

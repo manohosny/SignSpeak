@@ -184,9 +184,24 @@ class TTSEngine:
         if MOCK_MODE:
             return self._silent_wav(duration=0.5)
 
-        return await asyncio.to_thread(
-            self._synthesize_sync, text, voice, speed, lang
-        )
+        from app.core.config import settings
+
+        try:
+            return await asyncio.wait_for(
+                asyncio.to_thread(self._synthesize_sync, text, voice, speed, lang),
+                timeout=settings.TTS_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            # Re-raise: callers already convert synthesis failures into the
+            # user-visible "Audio synthesis failed" WS error.
+            from app.core.metrics import ML_INFERENCE_TIMEOUTS
+
+            ML_INFERENCE_TIMEOUTS.labels(engine="tts").inc()
+            logger.error(
+                "TTS synthesis timed out after %.1fs",
+                settings.TTS_TIMEOUT_SECONDS,
+            )
+            raise
 
     def _synthesize_sync(
         self, text: str, voice: str, speed: float, lang: str

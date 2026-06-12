@@ -167,6 +167,44 @@ describe("useMeeting state machine", () => {
     expect(result.current.isPartnerSpeaking).toBe(false)
   })
 
+  it("captures sign_text content plus optional confidence and message_id", () => {
+    const { result } = renderHook(() => useMeeting("ABCD"), {
+      wrapper: makeWrapper(),
+    })
+
+    // Partial echo from an older server: no confidence, no message_id.
+    act(() => {
+      capturedOnMessage?.({
+        type: "sign_text",
+        content: "hello …",
+        sender_id: "u-2",
+        timestamp: "2026-05-06T10:00:00.000Z",
+      })
+    })
+    expect(result.current.signText).toEqual({
+      content: "hello …",
+      confidence: undefined,
+      messageId: undefined,
+    })
+
+    // Finalized sentence from a newer server carries both fields.
+    act(() => {
+      capturedOnMessage?.({
+        type: "sign_text",
+        content: "hello world",
+        sender_id: "u-2",
+        timestamp: "2026-05-06T10:00:01.000Z",
+        confidence: 0.42,
+        message_id: "msg-1",
+      })
+    })
+    expect(result.current.signText).toEqual({
+      content: "hello world",
+      confidence: 0.42,
+      messageId: "msg-1",
+    })
+  })
+
   it("transitions to ended on meeting_ended", () => {
     const { result } = renderHook(() => useMeeting("ABCD"), {
       wrapper: makeWrapper(),

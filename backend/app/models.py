@@ -298,6 +298,14 @@ class MeetingMessage(MeetingMessageBase, table=True):
         default_factory=get_datetime_utc,
         sa_type=DateTime(timezone=True),  # type: ignore
     )
+    # User feedback: a participant flagged this message as a wrong
+    # translation/transcription. Flagged rows are the labeled dataset that
+    # feeds threshold tuning and future LoRA re-tuning.
+    flagged_at: datetime | None = Field(
+        default=None,
+        sa_type=DateTime(timezone=True),  # type: ignore
+    )
+    flag_reason: str | None = Field(default=None, max_length=500)
 
     # --- Relationships ---
     meeting: Meeting = Relationship(back_populates="messages")
@@ -323,6 +331,13 @@ class MeetingMessagePublic(SQLModel):
     content: str
     msg_type: MessageType
     created_at: datetime | None = None
+    flagged_at: datetime | None = None
+
+
+class MessageFlag(SQLModel):
+    """Body for POST /meetings/{id}/messages/{message_id}/flag."""
+
+    reason: str | None = Field(default=None, max_length=500)
 
 
 class MeetingMessagesPublic(SQLModel):
