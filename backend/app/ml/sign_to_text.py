@@ -9,12 +9,12 @@ step for the signing path (mBART stays loaded for Direction A text->gloss).
 Key implementation details (mirrors translation.py conventions):
 1. Inference only, Apple M1 / MPS, fp32 (the released checkpoint runs bfloat16
    on CUDA; bf16 op support on MPS is uneven, so we force fp32 for correctness).
-2. The vendored Uni-Sign repo (third_party/Uni-Sign) is imported at load time.
+2. The integrated Uni-Sign repo (sign_to_gloss/Uni-Sign) is imported at load time.
    We import ONLY models.Uni_Sign -- NOT datasets.py, which pulls in decord/cv2
    (video deps we don't need; extraction is browser-side). The model's pose
    preprocessing (load_part_kp / crop_scale) is reimplemented below, copied
    verbatim from datasets.py so the server matches the checkpoint's training
-   distribution exactly. See third_party/UNI_SIGN_MPS_NOTES.md.
+   distribution exactly. See sign_to_gloss/UNI_SIGN_MPS_NOTES.md.
 3. The shared model is not thread-safe; model.generate() is guarded by a
    threading.Lock and runs in the asyncio.to_thread pool.
 4. Greedy decoding (num_beams=1) on CPU/MPS for acceptable latency.
@@ -62,7 +62,7 @@ def _detect_device(preferred: str = "auto") -> str:
 
 
 # -- Pose preprocessing -------------------------------------------------------
-# Copied verbatim from third_party/Uni-Sign/datasets.py (the model's training
+# Copied verbatim from sign_to_gloss/Uni-Sign/datasets.py (the model's training
 # contract). The browser sends raw RTMW-133 keypoints divided by [W,H]; ALL of
 # the part-grouping + body-scale normalization below happens server-side,
 # identically to training. See UNI_SIGN_MPS_NOTES.md sections (a)/(b).
@@ -162,7 +162,7 @@ def _collate_single(kps_with_scores: dict[str, Any]) -> dict[str, Any]:
 def _resolve_repo_dir(repo_dir: str) -> str:
     """Resolve the vendored Uni-Sign path independent of the process cwd.
 
-    A relative path (the config default "third_party/Uni-Sign") is anchored at
+    A relative path (the config default "sign_to_gloss/Uni-Sign") is anchored at
     the SignSpeak project root — parents[3] of this file
     (backend/app/ml/sign_to_text.py -> project root) — so it works whether the
     server is launched from backend/ or the repo root.

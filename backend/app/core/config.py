@@ -129,7 +129,7 @@ class Settings(BaseSettings):
 
     # ── Sign-to-Text (Uni-Sign, gloss-free signs -> English) ──
     SIGN_TO_TEXT_ENABLED: bool = True       # kill switch (Direction B signs path)
-    SIGN_TO_TEXT_REPO_DIR: str = "third_party/Uni-Sign"     # vendored Uni-Sign clone
+    SIGN_TO_TEXT_REPO_DIR: str = "sign_to_gloss/Uni-Sign"   # integrated Uni-Sign repo
     SIGN_TO_TEXT_CHECKPOINT: str = "~/.signspeak/models/uni-sign/how2sign_pose_only_slt.pth"
     SIGN_TO_TEXT_MT5_DIR: str = "~/.signspeak/models/mt5-base"
     SIGN_TO_TEXT_DEVICE: str = "auto"       # auto | cuda | mps | cpu

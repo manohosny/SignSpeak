@@ -15,12 +15,12 @@ services:
       - SIGN_TO_TEXT_DEVICE=cpu
       # Greedy decoding only — beam search on CPU is far too slow for real-time.
       - TRANSLATION_NUM_BEAMS=1
-      # The vendored Uni-Sign repo (config.py/models.py) is not baked into the
+      # The integrated Uni-Sign repo (config.py/models.py) is not baked into the
       # backend image (Dockerfile copies only backend/). Bind-mount it and point
       # the loader at the absolute mount path so `import config` resolves.
       - SIGN_TO_TEXT_REPO_DIR=/app/uni-sign
     volumes:
-      - ./third_party/Uni-Sign:/app/uni-sign:ro
+      - ./sign_to_gloss/Uni-Sign:/app/uni-sign:ro
     deploy:
       resources:
         limits:

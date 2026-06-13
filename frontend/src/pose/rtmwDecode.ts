@@ -1,6 +1,6 @@
 /**
  * Pure decode math for the browser RTMW pipeline — a faithful TypeScript port of
- * rtmlib's RTMPose/YOLOX pre/post-processing (third_party/Uni-Sign/demo/rtmlib-main).
+ * rtmlib's RTMPose/YOLOX pre/post-processing (sign_to_gloss/Uni-Sign/demo/rtmlib-main).
  *
  * Keeping this pure (no DOM, no onnxruntime) lets it be unit-tested against
  * golden vectors captured from Python rtmlib, so the keypoints the browser

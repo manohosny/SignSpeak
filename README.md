@@ -266,7 +266,7 @@ When ML is enabled, the backend requires:
 Direction B needs the Uni-Sign checkpoint and an mT5 snapshot, which are **not** auto-downloaded:
 
 1. Place the WLASL ISLR checkpoint at `~/.signspeak/models/uni-sign/wlasl_pose_only_islr.pth` and the mT5 base snapshot at `~/.signspeak/models/mt5-base` (see `deploy/gcp/03-stage-models.sh` for download/staging commands), or point `SIGN_TO_TEXT_CHECKPOINT` / `SIGN_TO_TEXT_MT5_DIR` wherever you keep them.
-2. The vendored model code lives in `third_party/Uni-Sign`.
+2. The sign-recognition model code lives in `sign_to_gloss/Uni-Sign/` and is driven by `backend/app/ml/sign_to_text.py`. It is built on the **Uni-Sign** model (Li et al., ICLR 2025 — see [Models & Credits](#team--provenance)).
 3. No setup is needed for the browser side — YOLOX + RTMW ONNX models are bundled with the frontend (or served from `VITE_MODEL_BASE`).
 4. Without the checkpoint, the backend starts fine and logs a warning; set `SIGN_TO_TEXT_MOCK_MODE=true` to exercise the pipeline with canned output.
 
@@ -285,6 +285,11 @@ Segmentation/recognition knobs (`SIGN_TO_TEXT_*` in `backend/app/core/config.py`
 ## Team & Provenance
 
 This repository was forked from the [FastAPI full-stack template](https://github.com/fastapi/full-stack-fastapi-template) via copier (template authors appear in the inherited git history). All SignSpeak features — meetings, STT/TTS pipelines, gloss translation, the signing avatar, and the Direction B sign-recognition pipeline — were built by **@manohosny**. To see project work excluding template history: `git log --since=2025-03-01 --oneline --no-merges`.
+
+**Models & credits.** SignSpeak's ML stages are built on pretrained models we integrate (not author); our work is the segmentation, real-time pipeline, and serving around them:
+
+- **Sign recognition (Direction B):** [Uni-Sign](https://github.com/ZechengLi19/Uni-Sign) — Li, Zhou, Zhao, Wu, Hu, Li, *Uni-Sign: Toward Unified Sign Language Understanding at Scale*, ICLR 2025 ([arXiv:2501.15187](https://arxiv.org/abs/2501.15187)).
+- **STT:** NVIDIA Parakeet TDT 0.6B · **TTS:** Kokoro 82M · **Browser pose:** YOLOX-tiny + RTMW (MMPose) · **Gloss translation:** mBART-50, LoRA-fine-tuned in-house as `manohonsy/asl-mbart-50-lora`.
 
 ## Further Documentation
 
