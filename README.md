@@ -5,6 +5,28 @@ A real-time accessibility platform for communication between a hearing **speaker
 - **Direction A (speech → sign):** the speaker talks; their speech is transcribed live, translated to sign gloss, and rendered by a 3D signing avatar (plus live captions). Reader replies are spoken aloud via TTS.
 - **Direction B (sign → speech):** the reader signs at their camera; pose keypoints are extracted **in the browser** (video never leaves the device), streamed over WebSocket, recognized sign-by-sign on the server, and spoken to the speaker via TTS.
 
+## Team Members
+
+| Name | ID | Program |
+|------|----|---------|
+| Abdulrahman Mohamed Hosny | 202200066 | DSAI |
+| Mariam Hani | 202200903 | DSAI |
+| Youssef El Dawayaty | 202201209 | DSAI |
+
+**Supervisor:** Dr. Mohamed Sami Rakha
+
+## Problem Statement
+
+Communication between Deaf/Hard-of-Hearing (Deaf/HoH) signers and hearing
+non-signers is routinely blocked by the absence of a shared language. Human
+interpreters are scarce, expensive, and not available on demand, while generic
+captioning only solves one direction (speech → text) and ignores the signer
+entirely. SignSpeak addresses this by providing **real-time, two-way**
+translation in a single browser-based meeting: a hearing speaker's speech is
+transcribed and rendered as sign by a 3D avatar, and a signer's signs are
+recognized from their webcam and spoken aloud — with the signer's video never
+leaving their device.
+
 ## Features
 
 - **Speech-to-Text (STT)** — Live transcription using NVIDIA Parakeet TDT 0.6B via NeMo
