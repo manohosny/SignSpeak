@@ -253,7 +253,7 @@ Once the app is running (locally or via the live demo), a meeting works like thi
 1. A **speaker** creates a meeting and gets a shareable code (e.g., `XKF-8291`)
 2. A **reader** joins using the code
 3. **Direction A:** the speaker's audio is streamed via WebSocket → the backend runs **STT** → the transcript is translated to **sign gloss** (mBART LoRA) → the reader sees live captions and the **3D avatar** signing the gloss
-4. **Direction B:** the reader signs at their camera → a web worker extracts 133 RTMW pose keypoints per frame (**only keypoints, never video, leave the browser**) → keypoints stream over the same WebSocket → the backend segments signs (rest-pose / motion-pause detection) and recognizes each with **Uni-Sign** → the sentence is finalized, smoothed to English, and spoken to the speaker via **TTS**
+4. **Direction B:** the reader signs at their camera → a web worker extracts 133 RTMW pose keypoints per frame (**only keypoints leave the browser — never raw video**) → keypoints stream over the same WebSocket → the backend segments signs (rest-pose / motion-pause detection) and recognizes each with **Uni-Sign** → the sentence is finalized, smoothed to English, and spoken to the speaker via **TTS**
 
 ## Database Schema
 
@@ -440,7 +440,7 @@ uv run ruff format .                # Format
 uv run mypy app                     # Type check
 ```
 
-### Frontend
+### Frontend (commands)
 
 ```bash
 cd frontend
