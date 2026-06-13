@@ -40,7 +40,55 @@ leaving their device.
 - **User authentication** — JWT-based auth with email password recovery
 - **Dark mode** — Full theme support across the app
 
-## Tech Stack
+## System Architecture
+
+SignSpeak is a FastAPI backend + React frontend joined by a single WebSocket per
+meeting that multiplexes JSON control frames and binary audio/keypoint frames.
+ML runs on our own server; the **only** data that leaves the reader's browser is
+133 pose keypoints (never video).
+
+```mermaid
+flowchart LR
+    subgraph Client["Browser (client)"]
+        Mic["Speaker mic"]
+        Cam["Reader webcam"]
+        Worker["ONNX web worker<br/>YOLOX + RTMW pose"]
+        Cap["Live captions"]
+        Avatar["3D signing avatar"]
+        Spk["Speaker audio out"]
+    end
+
+    subgraph Server["FastAPI server"]
+        WS["WebSocket hub"]
+        STT["STT · Parakeet"]
+        TR["Gloss translate<br/>mBART-50 LoRA"]
+        SEG["Segmentation<br/>rest-pose / motion-pause"]
+        UNI["Sign recognition · Uni-Sign"]
+        TTS["TTS · Kokoro"]
+        DB[("PostgreSQL")]
+    end
+
+    Mic -->|"audio frames"| WS
+    WS --> STT --> TR
+    TR -->|"gloss"| Avatar
+    TR -->|"captions"| Cap
+
+    Cam --> Worker
+    Worker -->|"133 keypoints only"| WS
+    WS --> SEG --> UNI
+    UNI -->|"gloss"| WS
+    UNI -->|"English text"| TTS
+    TTS -->|"audio"| Spk
+
+    WS --- DB
+```
+
+**Direction A (speech → sign):** mic audio → STT → gloss translation → 3D avatar
++ live captions.
+**Direction B (sign → speech):** webcam → in-browser pose extraction → keypoints
+over WebSocket → segmentation → sign recognition → English → TTS.
+
+## Technologies Used
 
 | Layer | Technology |
 |-------|-----------|
@@ -166,6 +214,47 @@ Generate a secure secret key:
 python -c "import secrets; print(secrets.token_urlsafe(32))"
 ```
 
+## Deployment Instructions
+
+The production deployment is a **CPU-only GCP VM** behind Caddy (automatic
+HTTPS), not the generic Traefik guide in `deployment.md`. The authoritative
+runbook is [`deploy/gcp/README.md`](./deploy/gcp/README.md).
+
+**Live demo (on-demand):** https://dashboard.34.10.142.210.sslip.io
+> The demo runs on an on-demand CPU-only VM that is stopped to save cost, so the
+> URL may be unreachable until the VM is started (see the runbook below). The
+> backend health check is `https://api.34.10.142.210.sslip.io/api/v1/utils/healthz/ready`.
+
+Bring-up summary (full detail in the runbook):
+
+```bash
+# 1. Create the VM + static IP (prints DOMAIN=<ip>.sslip.io)
+bash deploy/gcp/01-create-vm.sh
+
+# 2. Install Docker + clone repo on the VM
+bash deploy/gcp/02-setup-vm.sh
+
+# 3. Stage ML model weights (Uni-Sign, mT5, Kokoro)
+bash deploy/gcp/03-stage-models.sh
+
+# 4. Start app + Caddy reverse proxy (TLS via Let's Encrypt)
+docker compose -f compose.yml -f deploy/gcp/compose.cpu.yml up -d
+docker compose -f deploy/gcp/docker-compose.caddy.yml -p caddy up -d
+```
+
+`sslip.io` provides free wildcard DNS (`<ip>.sslip.io` → that IP), so no domain
+purchase is required. Caddy serves `dashboard.<ip>.sslip.io` (frontend) and
+`api.<ip>.sslip.io` (backend) per [`deploy/gcp/Caddyfile`](./deploy/gcp/Caddyfile).
+
+## Usage Guide
+
+Once the app is running (locally or via the live demo), a meeting works like this:
+
+1. A **speaker** creates a meeting and gets a shareable code (e.g., `XKF-8291`)
+2. A **reader** joins using the code
+3. **Direction A:** the speaker's audio is streamed via WebSocket → the backend runs **STT** → the transcript is translated to **sign gloss** (mBART LoRA) → the reader sees live captions and the **3D avatar** signing the gloss
+4. **Direction B:** the reader signs at their camera → a web worker extracts 133 RTMW pose keypoints per frame (**only keypoints, never video, leave the browser**) → keypoints stream over the same WebSocket → the backend segments signs (rest-pose / motion-pause detection) and recognizes each with **Uni-Sign** → the sentence is finalized, smoothed to English, and spoken to the speaker via **TTS**
+
 ## Project Structure
 
 ```
@@ -209,13 +298,6 @@ SignSpeak/
 ├── development.md                  # Detailed development guide
 └── deployment.md                   # Production deployment guide
 ```
-
-## How It Works
-
-1. A **speaker** creates a meeting and gets a shareable code (e.g., `XKF-8291`)
-2. A **reader** joins using the code
-3. **Direction A:** the speaker's audio is streamed via WebSocket → the backend runs **STT** → the transcript is translated to **sign gloss** (mBART LoRA) → the reader sees live captions and the **3D avatar** signing the gloss
-4. **Direction B:** the reader signs at their camera → a web worker extracts 133 RTMW pose keypoints per frame (**only keypoints, never video, leave the browser**) → keypoints stream over the same WebSocket → the backend segments signs (rest-pose / motion-pause detection) and recognizes each with **Uni-Sign** → the sentence is finalized, smoothed to English, and spoken to the speaker via **TTS**
 
 ## Common Commands
 
