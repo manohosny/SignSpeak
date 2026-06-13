@@ -255,6 +255,108 @@ Once the app is running (locally or via the live demo), a meeting works like thi
 3. **Direction A:** the speaker's audio is streamed via WebSocket → the backend runs **STT** → the transcript is translated to **sign gloss** (mBART LoRA) → the reader sees live captions and the **3D avatar** signing the gloss
 4. **Direction B:** the reader signs at their camera → a web worker extracts 133 RTMW pose keypoints per frame (**only keypoints, never video, leave the browser**) → keypoints stream over the same WebSocket → the backend segments signs (rest-pose / motion-pause detection) and recognizes each with **Uni-Sign** → the sentence is finalized, smoothed to English, and spoken to the speaker via **TTS**
 
+## Database Schema
+
+PostgreSQL via SQLModel + Alembic migrations (`backend/app/alembic/versions/`).
+Five tables; full field-level reference in
+[`DOCUMENTATION.md` §3 (Data Models & Schemas)](./DOCUMENTATION.md#3-data-models--schemas).
+
+```mermaid
+erDiagram
+    user ||--o{ meeting : "hosts"
+    user ||--o{ meeting_participant : "joins via"
+    user ||--o{ meeting_message : "sends"
+    meeting ||--o{ meeting_participant : "has"
+    meeting ||--o{ meeting_message : "contains"
+
+    user {
+        uuid id PK
+        string email UK
+        string full_name
+        bool is_active
+        bool is_superuser
+        string hashed_password
+        datetime created_at
+    }
+    meeting {
+        uuid id PK
+        string code UK
+        enum status "waiting-active-ended"
+        uuid host_id FK
+        datetime created_at
+        datetime started_at
+        datetime ended_at
+    }
+    meeting_participant {
+        uuid id PK
+        uuid meeting_id FK
+        uuid user_id FK
+        enum role "speaker-reader"
+        datetime joined_at
+        datetime left_at
+    }
+    meeting_message {
+        uuid id PK
+        uuid meeting_id FK
+        uuid sender_id FK
+        string content
+        enum msg_type
+        datetime created_at
+        datetime flagged_at
+        string flag_reason
+    }
+    revoked_refresh_token {
+        string jti PK
+        datetime revoked_at
+        datetime expires_at
+    }
+```
+
+`meeting_participant` has a unique constraint on `(meeting_id, user_id)`; all
+foreign keys cascade-delete. `revoked_refresh_token` is a standalone blacklist of
+rotated refresh-token JTIs (no foreign key).
+
+## API Documentation
+
+The REST API is OpenAPI-documented and browsable live:
+
+| Resource | URL |
+|----------|-----|
+| Swagger UI | `/docs` |
+| ReDoc | `/redoc` |
+| OpenAPI JSON | `/api/v1/openapi.json` |
+
+All REST routes are under the `/api/v1` prefix. The exported spec is committed at
+[`frontend/openapi.json`](./frontend/openapi.json) and drives the typed frontend
+client (`bun run generate-client`).
+
+| Group | Representative endpoints |
+|-------|--------------------------|
+| **Auth** | `POST /login/access-token`, `POST /login/refresh`, `POST /logout`, `POST /password-recovery/{email}`, `POST /reset-password/` |
+| **Users** | `POST /users/signup`, `GET /users/me`, `PATCH /users/me`, `GET /users/` *(superuser)* |
+| **Meetings** | `POST /meetings/`, `GET /meetings/`, `GET /meetings/{code}`, `POST /meetings/{code}/join`, `POST /meetings/{meeting_id}/end` |
+| **Messages** | `GET /meetings/{meeting_id}/messages`, `POST /meetings/{meeting_id}/messages/{message_id}/flag` |
+| **Health** | `GET /utils/healthz/live`, `GET /utils/healthz/ready` |
+| **Real-time** | `WS /ws/{meeting_id}` — JSON control + binary audio/keypoint frames |
+
+See Swagger `/docs` for the authoritative, always-current request/response schemas.
+
+## Screenshots / Demo
+
+Screenshots live in [`docs/screenshots/`](./docs/screenshots/) (see that folder's
+README for the capture checklist).
+
+| | |
+|---|---|
+| Login | ![Login](docs/screenshots/01-login.png) |
+| Dashboard | ![Dashboard](docs/screenshots/02-dashboard.png) |
+| Speaker view (captions) | ![Speaker view](docs/screenshots/05-speaker-view.png) |
+| Reader view (3D avatar) | ![Reader view](docs/screenshots/06-reader-view-avatar.png) |
+| Direction B (signing) | ![Direction B](docs/screenshots/08-direction-b-signing.png) |
+
+> **Live demo:** https://dashboard.34.10.142.210.sslip.io (on-demand VM — see
+> [Deployment Instructions](#deployment-instructions)).
+
 ## Project Structure
 
 ```
@@ -370,7 +472,7 @@ When ML is enabled, the backend requires:
 Direction B needs the Uni-Sign checkpoint and an mT5 snapshot, which are **not** auto-downloaded:
 
 1. Place the WLASL ISLR checkpoint at `~/.signspeak/models/uni-sign/wlasl_pose_only_islr.pth` and the mT5 base snapshot at `~/.signspeak/models/mt5-base` (see `deploy/gcp/03-stage-models.sh` for download/staging commands), or point `SIGN_TO_TEXT_CHECKPOINT` / `SIGN_TO_TEXT_MT5_DIR` wherever you keep them.
-2. The sign-recognition model code lives in `sign_to_gloss/Uni-Sign/` and is driven by `backend/app/ml/sign_to_text.py`. It is built on the **Uni-Sign** model (Li et al., ICLR 2025 — see [Models & Credits](#team--provenance)).
+2. The sign-recognition model code lives in `sign_to_gloss/Uni-Sign/` and is driven by `backend/app/ml/sign_to_text.py`. It is built on the **Uni-Sign** model (Li et al., ICLR 2025 — see [Models & Credits](#credits--acknowledgements)).
 3. No setup is needed for the browser side — YOLOX + RTMW ONNX models are bundled with the frontend (or served from `VITE_MODEL_BASE`).
 4. Without the checkpoint, the backend starts fine and logs a warning; set `SIGN_TO_TEXT_MOCK_MODE=true` to exercise the pipeline with canned output.
 
@@ -386,14 +488,22 @@ Segmentation/recognition knobs (`SIGN_TO_TEXT_*` in `backend/app/core/config.py`
 - Direction B vocabulary is limited to **WLASL isolated signs**; classifier-predicate motion (core ASL grammar) is not rendered.
 - No fairness evaluation across signer demographics (skin tone, hand size, signing speed) has been run yet — see the maturity report roadmap.
 
-## Team & Provenance
+## Credits & Acknowledgements
 
-This repository was forked from the [FastAPI full-stack template](https://github.com/fastapi/full-stack-fastapi-template) via copier (template authors appear in the inherited git history). All SignSpeak features — meetings, STT/TTS pipelines, gloss translation, the signing avatar, and the Direction B sign-recognition pipeline — were built by **@manohosny**. To see project work excluding template history: `git log --since=2025-03-01 --oneline --no-merges`.
+SignSpeak's ML stages build on pretrained models we integrate (not author); our
+contribution is the segmentation, real-time pipeline, and serving around them:
 
-**Models & credits.** SignSpeak's ML stages are built on pretrained models we integrate (not author); our work is the segmentation, real-time pipeline, and serving around them:
+- **Sign recognition (Direction B):** [Uni-Sign](https://github.com/ZechengLi19/Uni-Sign) —
+  Li, Zhou, Zhao, Wu, Hu, Li, *Uni-Sign: Toward Unified Sign Language Understanding
+  at Scale*, ICLR 2025 ([arXiv:2501.15187](https://arxiv.org/abs/2501.15187)).
+- **STT:** NVIDIA Parakeet TDT 0.6B · **TTS:** Kokoro 82M · **Browser pose:**
+  YOLOX-tiny + RTMW (MMPose) · **Gloss translation:** mBART-50, LoRA-fine-tuned
+  in-house as `manohonsy/asl-mbart-50-lora`.
 
-- **Sign recognition (Direction B):** [Uni-Sign](https://github.com/ZechengLi19/Uni-Sign) — Li, Zhou, Zhao, Wu, Hu, Li, *Uni-Sign: Toward Unified Sign Language Understanding at Scale*, ICLR 2025 ([arXiv:2501.15187](https://arxiv.org/abs/2501.15187)).
-- **STT:** NVIDIA Parakeet TDT 0.6B · **TTS:** Kokoro 82M · **Browser pose:** YOLOX-tiny + RTMW (MMPose) · **Gloss translation:** mBART-50, LoRA-fine-tuned in-house as `manohonsy/asl-mbart-50-lora`.
+The project was scaffolded from the
+[FastAPI full-stack template](https://github.com/fastapi/full-stack-fastapi-template)
+(template authors appear in the inherited git history). SignSpeak-specific work is
+visible via `git log --since=2025-03-01 --no-merges`.
 
 ## Further Documentation
 
