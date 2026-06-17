@@ -343,16 +343,13 @@ See Swagger `/docs` for the authoritative, always-current request/response schem
 
 ## Screenshots / Demo
 
-Screenshots live in [`docs/screenshots/`](./docs/screenshots/) (see that folder's
-README for the capture checklist).
+Screens from the live deployment (`docs/screenshots/`):
 
 | | |
-|---|---|
-| Login | ![Login](docs/screenshots/01-login.png) |
-| Dashboard | ![Dashboard](docs/screenshots/02-dashboard.png) |
-| Speaker view (captions) | ![Speaker view](docs/screenshots/05-speaker-view.png) |
-| Reader view (3D avatar) | ![Reader view](docs/screenshots/06-reader-view-avatar.png) |
-| Direction B (signing) | ![Direction B](docs/screenshots/08-direction-b-signing.png) |
+|:---:|:---:|
+| ![Login](docs/screenshots/01-login.png)<br>**Login** | ![Dashboard](docs/screenshots/02-dashboard.png)<br>**Dashboard** |
+| ![Waiting room](docs/screenshots/03-waiting-room.png)<br>**Waiting room** — shareable meeting code | ![Speaker view](docs/screenshots/04-speaker-view.png)<br>**Speaker view** — tap-to-speak (Direction A) |
+| ![Reader view](docs/screenshots/05-reader-view.png)<br>**Reader view** — webcam + 3D signing avatar (Direction B) | |
 
 > **Live demo:** https://dashboard.34.10.142.210.sslip.io (on-demand VM — see
 > [Deployment Instructions](#deployment-instructions)).
