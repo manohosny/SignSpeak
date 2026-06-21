@@ -46,7 +46,7 @@
     "onnxruntime-web": "^1.26.0",
     "react": "^19.1.1",
     "react-dom": "^19.2.3",
-    "react-error-boundary": "^6.0.0",
+    "react-error-boundary": "^6.1.2",
     "react-hook-form": "^7.68.0",
     "react-icons": "^5.5.0",
     "sonner": "^2.0.7",
