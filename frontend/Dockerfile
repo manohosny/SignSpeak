@@ -33,7 +33,7 @@ RUN bun run build
 # Stage 1, based on the unprivileged Nginx image, to serve only the compiled
 # app. nginx-unprivileged runs as a non-root user and listens on port 8080,
 # which limits the blast radius of a container compromise.
-FROM nginxinc/nginx-unprivileged:1.27-alpine
+FROM nginxinc/nginx-unprivileged:1.31-alpine
 
 COPY --from=build-stage /app/frontend/dist/ /usr/share/nginx/html
 
