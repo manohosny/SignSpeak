@@ -39,7 +39,7 @@ services:
           memory: 1G
 
   redis:
-    image: redis:7-alpine
+    image: redis:8-alpine
     restart: always
     logging: *default-logging
     networks:
