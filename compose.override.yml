@@ -67,7 +67,7 @@ services:
   # lives in the override file so `docker compose -f compose.yml ...` (prod)
   # never starts it. Reached via the POSTGRES_* settings, not DATABASE_URL.
   db:
-    image: postgres:17
+    image: postgres:18
     restart: "no"
     volumes:
       - app-db-data:/var/lib/postgresql/data/pgdata
